@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+
+results/
+
+my_finetuned_t5/
