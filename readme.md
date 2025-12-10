@@ -1,5 +1,7 @@
 # MyRargb
 
+![image](./myrargb.png)
+
 [Rargb](https://rargb.to/) is a resources shared website, I'd like downloading the tv series and movies there.
 
 Unexpectedly there is too much text describe the quality and resources which I don't care, what I care is how to pick up a target to put on a great show. Therefore, the scores of the resource in imdb is important to me.
@@ -18,4 +20,3 @@ cd myrargb
 python app.py
 ```
 
-# TBC
