@@ -7,10 +7,11 @@ from bs4 import BeautifulSoup
 from db import db
 import time
 import argparse
+from workflow import Workflow
 
 
 def crawl_imdb():
-    items = db.get_items(is_training=False, limit=100, sql='and score is null')
+    items = db.get_items(workflow=Workflow.SCORING)
     print(f"Found {len(items)} items to update from IMDb.")
     for item in items:
     
@@ -71,7 +72,8 @@ def crawl_imdb():
         }
         db.update_item(update_item)
         continue    
-    return items
+      
+    return True
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import sqlite3
+from workflow import Workflow
 
 
 class MyRargbDB:
@@ -31,12 +32,24 @@ class MyRargbDB:
     self.conn.commit()
 
 
-  def get_items(self, type='movies', is_training=True, sql='', limit=1000, order_by='id DESC'):
+  def get_items(self, workflow: Workflow, type='movies', sql='', limit=1000, order_by='id DESC'):
     exe_sql = ' select * from movies where 1=1 '
+    
+    if workflow == Workflow.FILTERING:
+      exe_sql += " and (title is null or title = '' ) "
+    elif workflow == Workflow.TRAINING:
+      exe_sql += " and title is not null and title != '' "
+    elif workflow == Workflow.QUERYING:
+      exe_sql += " and score is not null and score != '' "
+    elif workflow == Workflow.SCORING:
+      exe_sql += " and score is null and title is not null and title != '' "
+    
     if type=='movies':
       exe_sql += " and type = '00' "
+    
     if sql:
       exe_sql += ' ' + sql + ' '
+    
     exe_sql += f' ORDER BY {order_by} '
     exe_sql += f' LIMIT {limit} '
     self.cur.execute(exe_sql)
@@ -86,6 +99,11 @@ class MyRargbDB:
     self.conn.commit()
     return True
 
+
+  def del_item(self, item_id):
+    self.cur.execute("DELETE FROM movies WHERE id = ?", (item_id,))
+    self.conn.commit()
+    
 
   def batch_replace(self):
     print('# Excuting batch replacement...')

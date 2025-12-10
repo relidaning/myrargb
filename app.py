@@ -1,7 +1,11 @@
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from crawl_rargb import crawl_rargb
 from db import db
+from finetuning import model 
+from crawl_imdb import crawl_imdb
+from workflow import Workflow
+
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -10,19 +14,21 @@ CORS(app)  # 允许跨域请求
 @app.route('/', methods=['GET'])
 def index():
     keyword = '2025'
-    items = db.get_items(sql='and score is not null', limit=100, order_by='score DESC, marked asc')
-    return render_template('index.html', items=items, keyword=keyword) 
+    page = 8
+    items = db.get_items(workflow=Workflow.QUERYING, limit=100, order_by='score DESC, marked asc')
+    return render_template('index.html', items=items, keyword=keyword, page=page) 
 
 
-def crawl_rargb():
-    items = crawl_rargb()
-    db.save_items(items)
-    return jsonify({"status": "success", "message": f"Added {len(movies)} items."})
+@app.route('/crawl_more', methods=['GET'])
+def crawl_more():
+    keyword = request.args.get('keyword', '2025')
+    page = request.args.get('page', 1, type=int)
 
-
-def crawl_imdb():
+    crawl_rargb(page, keyword)
+    model.filter()
     crawl_imdb()
-    return jsonify({"status": "success", "message": "IMDB crawl initiated."})
+    
+    return jsonify({"status": "success", "message": f"Crawling more items with keyword: {keyword}, and it's done!"})
 
 
 @app.route('/movies/<int:item_id>/abandon', methods=['GET'])

@@ -3,7 +3,7 @@ from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Trainer, TrainingArguments
 from crawl_rargb import crawl_rargb
 from db import db
-
+from workflow import Workflow
 
 class MyRargbModel():
   
@@ -27,7 +27,7 @@ class MyRargbModel():
       return inputs
     
     
-  def train(self, db=db):
+  def train(self):
     data = []
     items = db.get_items()
     for item in items:
@@ -62,16 +62,22 @@ class MyRargbModel():
     self.tokenizer.save_pretrained(self.local_model_path)
 
 
-  def filter(self, db=db):
-    items = db.get_items(is_training=False)
+  def filter(self):
+    items = db.get_items(workflow=Workflow.FILTERING)
     for item in items:
       inputs = self.tokenizer(item['filename'], return_tensors="pt")
       output = self.model.generate(**inputs)
       title = self.tokenizer.decode(output[0], skip_special_tokens=True)
       print(f'# Original: {item["filename"]} --> Predicted: {title} ')
+      
+      hits = db.get_items(workflow=Workflow.QUERYING, sql=f'and lower(title) = "{title.lower()}"')
+      if len(hits)>0:
+        print(f'# Found existing title "{title}" in DB, skipping update.')
+        db.del_item(item['id'])
+        continue
+      
       db.update_item({'id': item['id'], 'title': title})
 
-
+model = MyRargbModel()
 if __name__ == "__main__":
-  my_model = MyRargbModel()
-  my_model.filter(db=db)
+  model.filter()

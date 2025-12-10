@@ -8,8 +8,9 @@ import time
 import argparse
 
 
-def crawl_rargb(type='movies', page=1):
-    url = f"https://rargb.to/search/{page}/?search=2025&category[]={type}"
+def crawl_rargb(page, keyword, type='movies'):
+    
+    url = f"https://rargb.to/search/{page}/?search={keyword}&category[]={type}"
     options = webdriver.ChromeOptions()
     # MUST run with real UI, Cloudflare blocks headless
     # comment the next line if you want visible browser
@@ -59,7 +60,9 @@ def crawl_rargb(type='movies', page=1):
             "genre": cols[1].find('span').text.strip() if cols[1].find('span') else ''
         })
 
-    return items
+    db.save_items(items)
+    
+    return True
 
 
 if __name__ == "__main__":

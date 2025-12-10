@@ -51,11 +51,12 @@
     text-align: center;
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
-
 <body>
 <h2>MyRargb Helper</h2>
-<input type="text" id="searchInput" placeholder="Search..." value="{{keyword}}">
+<input type="text" id="keyword" placeholder="Search..." value="{{keyword}}">
+<input type="text" id="page" placeholder="Page..." value="8">
 <button onclick="crawlMore()">Crawl More!</button>
 <div class="table-container">
   <div class="table">
@@ -99,6 +100,26 @@
 
   </div>
 </div>
-
+<script>
+  function crawlMore() {
+    const keyword = document.getElementById('keyword').value;
+    const page = document.getElementById('page').value;
+    axios.get('/crawl_more', {
+        params: {
+            keyword: keyword,
+            page: page
+        }
+    })
+    .then(function (response) {
+        // handle success
+        console.log(response.data);
+        document.getElementById('data-container').innerText = JSON.stringify(response.data, null, 2);
+    })
+    .catch(function (error) {
+        // handle error
+        console.error(error);
+    });
+  }
+</script>
 </body>
 </html>
