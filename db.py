@@ -40,7 +40,7 @@ class MyRargbDB:
     elif workflow == Workflow.TRAINING:
       exe_sql += " and title is not null and title != '' "
     elif workflow == Workflow.QUERYING:
-      exe_sql += " and score is not null and score != '' "
+      exe_sql += " and score is not null and score != '' and score != 'unmatched' "
     elif workflow == Workflow.SCORING:
       exe_sql += " and score is null and title is not null and title != '' "
     

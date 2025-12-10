@@ -24,7 +24,7 @@
     border-bottom: 1px solid #ddd;
     border-right: 1px solid #eee;
     overflow: hidden;
-    white-space: nowrap;
+    <!-- white-space: nowrap; -->
     text-overflow: ellipsis;
   }
 
@@ -50,6 +50,41 @@
   .text-center {
     text-align: center;
   }
+
+  #mask {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(3px);
+    display: none;             /* hidden by default */
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    z-index: 9999;
+  }
+
+  .loader {
+    width: 48px;
+    height: 48px;
+    border: 5px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  .msg {
+    margin-top: 12px;
+    color: #fff;
+    font-size: 16px;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
@@ -82,14 +117,17 @@
         <img src="{{item.poster}}" alt="Poster" style="width:50px;height:auto;">
         {% endif %}
       </div>
-      <div><a href="{{item.url}}" target="_blank">{{item.title}}</a></div>
+      <div>
+        <a href="{{item.url}}" target="_blank">{{item.title}}</a>
+        <p style="color: gray; font-size: 12px; word-wrap:break-word;">{{item.filename}}</p>
+      </div>
       <div>{{'' if not item.genre else item.genre}}</div>
       <div class="text-center">{{'Movie' if item.type == '00' else 'TV series'}}</div>
       <div class="text-center">{{item.score}}</div>
       <div>
         {% if item.marked == '00' %}
-        <a href="/movies/{{item.id}}/abandon">Abandon</a>
-        <a href="/movies/{{item.id}}/watched">Watched</a>
+        <button onclick="abandonItem('{{item.id}}')">Abandon</button>
+        <button onclick="watchedItem('{{item.id}}')">Watched</button>
         {% else %}
         {{'Abandoned' if item.marked == '01' else 'Watched'  }}
         {% endif %} 
@@ -100,10 +138,15 @@
 
   </div>
 </div>
+<div id="mask">
+  <div class="loader"></div>
+  <div class="msg">Processing…</div>
+</div>
 <script>
   function crawlMore() {
     const keyword = document.getElementById('keyword').value;
     const page = document.getElementById('page').value;
+    showMask();
     axios.get('/crawl_more', {
         params: {
             keyword: keyword,
@@ -113,12 +156,43 @@
     .then(function (response) {
         // handle success
         console.log(response.data);
-        document.getElementById('data-container').innerText = JSON.stringify(response.data, null, 2);
+        hideMask();
+        location.reload();
     })
     .catch(function (error) {
         // handle error
         console.error(error);
     });
+  }
+
+  function abandonItem(itemId) {
+    axios.get(`/movies/${itemId}/abandon`)
+    .then(function (response) {
+        alert(response.data.message);
+        location.reload();
+    })
+    .catch(function (error) {
+        console.error(error);
+    });
+  } 
+
+  function watchedItem(itemId) {
+    axios.get(`/movies/${itemId}/watched`)
+    .then(function (response) {
+        alert(response.data.message);
+        location.reload();
+    })
+    .catch(function (error) {
+        console.error(error);
+    });
+  } 
+
+  function showMask() {
+    document.getElementById('mask').style.display = 'flex';
+  }
+
+  function hideMask() {
+    document.getElementById('mask').style.display = 'none';
   }
 </script>
 </body>
