@@ -4,3 +4,5 @@ __pycache__/
 results/
 
 my_finetuned_t5/
+
+myrargb.db

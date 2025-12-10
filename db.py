@@ -5,7 +5,7 @@ class MyRargbDB:
   
   
   def __init__(self):
-    self.conn = sqlite3.connect("myrargb.db")
+    self.conn = sqlite3.connect("myrargb.db", check_same_thread=False)
     self.cur = self.conn.cursor()
     self.cur.execute("""
     CREATE TABLE IF NOT EXISTS movies (
@@ -31,11 +31,14 @@ class MyRargbDB:
     self.conn.commit()
 
 
-  def get_items(self, type='movies', is_training=True, limit=1000):
-    if is_training:
-      self.cur.execute("SELECT id, filename, size, title, url FROM movies WHERE type = ? LIMIT ?", ('00' if type == 'movies' else '01', limit))
-    else:
-      self.cur.execute("SELECT id, filename, size, title, url FROM movies WHERE (title IS NULL OR title = '') AND type = ? LIMIT ?", ('00' if type == 'movies' else '01', limit))
+  def get_items(self, type='movies', is_training=True, sql='', limit=1000):
+    exe_sql = ' select * from movies where 1=1 '
+    if type=='movies':
+      exe_sql += " and type = '00' "
+    if sql:
+      exe_sql += ' ' + sql + ' '
+    exe_sql += f' LIMIT {limit} '
+    self.cur.execute(exe_sql)
     rows = self.cur.fetchall()
 
     items = []
@@ -52,10 +55,30 @@ class MyRargbDB:
     
 
   def update_item(self, item):
-    self.cur.execute("""
-    UPDATE movies SET title = ? WHERE id = ?
-    """, (item['title'], item['id']))
+    # id must exist
+    if "id" not in item:
+        raise ValueError("item must contain 'id'")
+
+    allowed_fields = ["title", "score", "poster"]
+    fields = []
+    values = []
+
+    for key in allowed_fields:
+        if key in item:
+            fields.append(f"{key} = ?")
+            values.append(item[key])
+
+    # Nothing to update
+    if not fields:
+        return False
+
+    # Add id at the end for WHERE id = ?
+    values.append(item["id"])
+
+    sql = f"UPDATE movies SET {', '.join(fields)} WHERE id = ?"
+    self.cur.execute(sql, values)
     self.conn.commit()
+    return True
 
 
   def batch_replace(self):

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+  <h1>Movie Titles</h1>
+  
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIV Table Demo</title>
+
+<style>
+  .table {
+    display: grid;
+    grid-template-columns: 60px 200px 150px 100px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+  }
+
+  .table-header, .table-row {
+    display: contents; /* allow grid layout */
+  }
+
+  .table div {
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+    border-right: 1px solid #eee;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .table div:last-child {
+    border-right: none;
+  }
+
+  .table-header div {
+    font-weight: bold;
+    background: #f0f0f0;
+    border-bottom: 2px solid #ccc;
+  }
+
+  .table-row:hover div {
+    background: #fafafa;
+  }
+
+  /* Make table scroll horizontally on mobile */
+  .table-container {
+    overflow-x: auto;
+  }
+</style>
+</head>
+
+<body>
+
+<h2>DIV Table Example</h2>
+
+<div class="table-container">
+  <div class="table">
+
+    <!-- Header -->
+    <div class="table-header">
+      <div>Index</div>
+      <div>Title</div>
+      <div>Size</div>
+      <div>Type</div>
+    </div>
+
+    {% for item in items %}
+    <div class="table-row">
+      <div>{{ loop.index }}</div>
+      <div>{{item.title}}</div>
+      <div>{{item.size}}</div>
+      <div>{{item.type}},{{'Movie' if item.type == '00' else 'TV series'}}</div>
+    </div>
+    {% endfor %}
+    
+
+  </div>
+</div>
+
+</body>
+</html>
