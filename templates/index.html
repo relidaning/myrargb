@@ -20,7 +20,7 @@
 <style>
   .table {
     display: grid;
-    grid-template-columns: 60px 200px 150px 100px;
+    grid-template-columns: 60px 150px 200px 150px 100px 100px;
     border: 1px solid #ccc;
     border-radius: 6px;
     overflow: hidden;
@@ -71,17 +71,21 @@
     <!-- Header -->
     <div class="table-header">
       <div>Index</div>
+      <div>Poster</div>
       <div>Title</div>
       <div>Size</div>
       <div>Type</div>
+      <div>Score</div>
     </div>
 
     {% for item in items %}
     <div class="table-row">
       <div>{{ loop.index }}</div>
-      <div>{{item.title}}</div>
+      <div><img src="{{item.poster}}" alt="Poster" style="width:50px;height:auto;"></div>
+      <div><a href="{{item.url}}" target="_blank">{{item.title}}</a></div>
       <div>{{item.size}}</div>
-      <div>{{item.type}},{{'Movie' if item.type == '00' else 'TV series'}}</div>
+      <div>{{'Movie' if item.type == '00' else 'TV series'}}</div>
+      <div>{{item.score}}</div>
     </div>
     {% endfor %}
     

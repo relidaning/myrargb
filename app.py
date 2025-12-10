@@ -9,7 +9,7 @@ CORS(app)  # 允许跨域请求
 
 @app.route('/', methods=['GET'])
 def index():
-    items = db.get_items()
+    items = db.get_items(sql='and score is not null', limit=100, order_by='score DESC')
     return render_template('index.html', items=items) 
 
 

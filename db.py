@@ -31,12 +31,13 @@ class MyRargbDB:
     self.conn.commit()
 
 
-  def get_items(self, type='movies', is_training=True, sql='', limit=1000):
+  def get_items(self, type='movies', is_training=True, sql='', limit=1000, order_by='id DESC'):
     exe_sql = ' select * from movies where 1=1 '
     if type=='movies':
       exe_sql += " and type = '00' "
     if sql:
       exe_sql += ' ' + sql + ' '
+    exe_sql += f' ORDER BY {order_by} '
     exe_sql += f' LIMIT {limit} '
     self.cur.execute(exe_sql)
     rows = self.cur.fetchall()
@@ -48,7 +49,11 @@ class MyRargbDB:
             "filename": row[1],
             "size": row[2],
             'title': row[3],
-            "url": row[4]
+            "url": row[4],
+            "type": row[5],
+            "score": row[6],
+            "genres": row[7],
+            "poster": row[8]
         })
 
     return items
