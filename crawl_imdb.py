@@ -1,3 +1,4 @@
+from turtle import title
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
@@ -9,7 +10,7 @@ import argparse
 
 
 def crawl_imdb():
-    items = db.get_items(is_training=False, limit=10, sql='and score is null')
+    items = db.get_items(is_training=False, limit=100, sql='and score is null')
     print(f"Found {len(items)} items to update from IMDb.")
     for item in items:
     
@@ -39,23 +40,37 @@ def crawl_imdb():
       ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
 
       if not ul:
-          print("❌ Could not find result table. Cloudflare may need more delay.")
-          print(html[:500])
-          return []    
-      
-      rows = ul.find_all("li")
-      r= rows[0]
-      poster = r.find("img", {'class': 'ipc-image'})['src']
-      title = r.find('h3', {'class': 'ipc-title__text'}).text
-      score = r.find('span', {'class': 'ipc-rating-star--rating'}).text 
-      
-      update_item = {
+        print("❌ Could not find result table. Cloudflare may need more delay.")
+        print(html[:500])
+        update_item = {
           "id": item["id"],
-          "poster": poster,
-          "score": score,
-          "title": title
-      }
-      db.update_item(update_item)
+          "score": 'unmatched',
+        }
+        db.update_item(update_item)
+        continue   
+      
+      try:
+        rows = ul.find_all("li")
+        r= rows[0]
+        poster = r.find("img", {'class': 'ipc-image'})['src']
+        title = r.find('h3', {'class': 'ipc-title__text'}).text
+        score = r.find('span', {'class': 'ipc-rating-star--rating'}).text 
+        
+        update_item = {
+            "id": item["id"],
+            "poster": poster,
+            "score": score,
+            "title": title
+        }
+        db.update_item(update_item)
+      except Exception as e:
+        print(f"❌ Error processing item {item['title']}: {e}")
+        update_item = {
+          "id": item["id"],
+          "score": 'unmatched',
+        }
+        db.update_item(update_item)
+        continue    
     return items
 
 

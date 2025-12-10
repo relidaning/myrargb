@@ -52,8 +52,9 @@ class MyRargbDB:
             "url": row[4],
             "type": row[5],
             "score": row[6],
-            "genres": row[7],
-            "poster": row[8]
+            "genre": row[7],
+            "poster": row[8],
+            "marked": row[9]
         })
 
     return items
@@ -64,7 +65,7 @@ class MyRargbDB:
     if "id" not in item:
         raise ValueError("item must contain 'id'")
 
-    allowed_fields = ["title", "score", "poster"]
+    allowed_fields = ["title", "score", "poster", "marked", "genre", "filename", "size", "url", "type"]
     fields = []
     values = []
 

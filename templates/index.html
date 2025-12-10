@@ -1,27 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body>
-  <h1>Movie Titles</h1>
-  
-</body>
-</html>
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DIV Table Demo</title>
+<title>MyRargb Helper</title>
 
 <style>
   .table {
     display: grid;
-    grid-template-columns: 60px 150px 200px 150px 100px 100px;
-    border: 1px solid #ccc;
+    grid-template-columns: 60px 150px 200px 100px 100px 100px 200px;
+    border: none;
     border-radius: 6px;
     overflow: hidden;
     font-family: Arial, sans-serif;
@@ -58,13 +46,17 @@
   .table-container {
     overflow-x: auto;
   }
+
+  .text-center {
+    text-align: center;
+  }
 </style>
 </head>
 
 <body>
-
-<h2>DIV Table Example</h2>
-
+<h2>MyRargb Helper</h2>
+<input type="text" id="searchInput" placeholder="Search..." value="{{keyword}}">
+<button onclick="crawlMore()">Crawl More!</button>
 <div class="table-container">
   <div class="table">
 
@@ -73,19 +65,34 @@
       <div>Index</div>
       <div>Poster</div>
       <div>Title</div>
-      <div>Size</div>
+      <div>Genre</div>
       <div>Type</div>
       <div>Score</div>
+      <div>Operations</div>
     </div>
 
     {% for item in items %}
     <div class="table-row">
-      <div>{{ loop.index }}</div>
-      <div><img src="{{item.poster}}" alt="Poster" style="width:50px;height:auto;"></div>
+      <div class="text-center">{{ loop.index }}</div>
+      <div class="text-center">
+        {% if not item.poster %}
+        <img src="{{ url_for('static', filename='images/default.jpg') }}" alt="No Poster" style="width:50px;height:auto;">
+        {% else %}
+        <img src="{{item.poster}}" alt="Poster" style="width:50px;height:auto;">
+        {% endif %}
+      </div>
       <div><a href="{{item.url}}" target="_blank">{{item.title}}</a></div>
-      <div>{{item.size}}</div>
-      <div>{{'Movie' if item.type == '00' else 'TV series'}}</div>
-      <div>{{item.score}}</div>
+      <div>{{'' if not item.genre else item.genre}}</div>
+      <div class="text-center">{{'Movie' if item.type == '00' else 'TV series'}}</div>
+      <div class="text-center">{{item.score}}</div>
+      <div>
+        {% if item.marked == '00' %}
+        <a href="/movies/{{item.id}}/abandon">Abandon</a>
+        <a href="/movies/{{item.id}}/watched">Watched</a>
+        {% else %}
+        {{'Abandoned' if item.marked == '01' else 'Watched'  }}
+        {% endif %} 
+      </div>
     </div>
     {% endfor %}
     

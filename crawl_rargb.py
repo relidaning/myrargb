@@ -55,7 +55,8 @@ def crawl_rargb(type='movies', page=1):
             "filename": a.text.strip(),
             "url": "https://rargb.to" + a["href"],
             "size": cols[4].text.strip(),
-            "type": '00' if type == 'movies' else '01'
+            "type": '00' if type == 'movies' else '01',
+            "genre": cols[1].find('span').text.strip() if cols[1].find('span') else ''
         })
 
     return items
