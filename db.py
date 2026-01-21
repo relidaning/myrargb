@@ -1,4 +1,5 @@
 import sqlite3
+import logging as logger
 from workflow import Workflow
 
 
@@ -23,17 +24,15 @@ class MyRargbDB:
 
 
   def save_items(self, items):
-
     for item in items:
-        self.cur.execute("""
-        INSERT INTO movies (filename, size, url, type) VALUES (?, ?, ?, ?)
-        """, (item["filename"], item["size"], item["url"], item["type"]))
-
-    self.conn.commit()
+      self.cur.execute("""
+        INSERT INTO movies (filename, size, url, type, genre) VALUES (?, ?, ?, ?, ?)
+      """, (item["filename"], item["size"], item["url"], item["type"], item['genre'] if 'genre' in item else ''))
+      self.conn.commit()
 
 
   def get_items(self, workflow: Workflow, type='movies', sql='', limit=1000, order_by='id DESC'):
-    exe_sql = ' select * from movies where 1=1 '
+    exe_sql = ' select id, filename, size, title, url, type, score, genre, poster, marked, title_acurate, trained_flag from movies where 1=1 '
     
     if workflow == Workflow.FILTERING:
       exe_sql += " and (title is null or title = '' ) "
@@ -67,7 +66,9 @@ class MyRargbDB:
             "score": row[6],
             "genre": row[7],
             "poster": row[8],
-            "marked": row[9]
+            "marked": row[9],
+            'title_acurate': row[10],
+            'trained_flag': row[11]
         })
 
     return items
@@ -78,7 +79,7 @@ class MyRargbDB:
     if "id" not in item:
         raise ValueError("item must contain 'id'")
 
-    allowed_fields = ["title", "score", "poster", "marked", "genre", "filename", "size", "url", "type"]
+    allowed_fields = ["title", "score", "poster", "marked", "genre", "filename", "size", "url", "type", "title_acurate", "trained_flag"]
     fields = []
     values = []
 
@@ -116,6 +117,19 @@ class MyRargbDB:
         self.cur.execute("UPDATE movies SET title = ? WHERE id = ?", (new_title, item['id']))
     self.conn.commit()
      
+
+  def del_duplicates(self):
+    logger.debug('# Excuting duplicate removal...')
+    self.cur.execute("""
+    DELETE FROM movies
+    WHERE id NOT IN (
+        SELECT MIN(id)
+        FROM movies
+        GROUP BY title
+    """)
+    self.conn.commit()
+
+
       
   def __del__(self):
     self.conn.close()

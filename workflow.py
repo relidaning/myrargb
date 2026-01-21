@@ -5,3 +5,4 @@ class Workflow(Enum):
   FILTERING = 1
   SCORING = 2
   QUERYING = 3
+  NONE = 4

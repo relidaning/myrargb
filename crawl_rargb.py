@@ -1,14 +1,18 @@
+from logging import log as logger
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 from db import db
 import time
 import argparse
+import logging as logger
+from typing import List
 
+logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def crawl_rargb(page, keyword, type='movies'):
+def crawl_rargb(page, keyword, type='movies') -> bool:
+  
     
     url = f"https://rargb.to/search/{page}/?search={keyword}&category[]={type}"
     options = webdriver.ChromeOptions()
@@ -36,9 +40,9 @@ def crawl_rargb(page, keyword, type='movies'):
     table = soup.find("table", {"class": "lista2t"})
 
     if not table:
-        print("❌ Could not find result table. Cloudflare may need more delay.")
-        print(html[:500])
-        return []
+        logger.debug("❌ Could not find result table. Cloudflare may need more delay.")
+        logger.debug(html[:500])
+        return False
 
     items = []
     rows = table.find_all("tr")[1:]
@@ -46,10 +50,12 @@ def crawl_rargb(page, keyword, type='movies'):
     for r in rows:
         cols = r.find_all("td")
         if len(cols) < 2:
+            logger.debug('❌ Not enough columns in row, skipping.')
             continue
 
         a = cols[1].find("a")
         if not a:
+            logger.debug('❌ No link found in row, skipping.')
             continue
 
         items.append({
@@ -59,6 +65,7 @@ def crawl_rargb(page, keyword, type='movies'):
             "type": '00' if type == 'movies' else '01',
             "genre": cols[1].find('span').text.strip() if cols[1].find('span') else ''
         })
+        logger.debug(f"Found item: {items[-1]}")
 
     db.save_items(items)
     
@@ -70,5 +77,4 @@ if __name__ == "__main__":
     parser.add_argument('--type', choices=['movies', 'tvshows'], default='movies')
     parser.add_argument('--page', type=int, default=1)
     args = parser.parse_args()
-    results = crawl_rargb(page=args.page, type=args.type)
-    db.save_items(results)
+    crawl_rargb(keyword='2026', page=args.page, type=args.type)

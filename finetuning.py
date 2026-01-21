@@ -4,6 +4,10 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, Trainer, Training
 from crawl_rargb import crawl_rargb
 from db import db
 from workflow import Workflow
+import logging as logger
+
+
+logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MyRargbModel():
   
@@ -29,7 +33,7 @@ class MyRargbModel():
     
   def train(self):
     data = []
-    items = db.get_items()
+    items = db.get_items(Workflow.TRAINING)
     for item in items:
       data.append({'id': item['id'], 'noisy': item['filename'], 'clean': item['title']})
     dataset = Dataset.from_list(data)
@@ -68,11 +72,11 @@ class MyRargbModel():
       inputs = self.tokenizer(item['filename'], return_tensors="pt")
       output = self.model.generate(**inputs)
       title = self.tokenizer.decode(output[0], skip_special_tokens=True)
-      print(f'# Original: {item["filename"]} --> Predicted: {title} ')
+      logger.debug(f'# Original: {item["filename"]} --> Predicted: {title} ')
       
-      hits = db.get_items(workflow=Workflow.QUERYING, sql=f'and lower(title) = "{title.lower()}"')
+      hits = db.get_items(workflow=Workflow.TRAINING, sql=f'and lower(title) = "{title.lower()}"')
       if len(hits)>0:
-        print(f'# Found existing title "{title}" in DB, skipping update.')
+        logger.debug(f'x Found existing items "{title}" in DB, skipping update.')
         db.del_item(item['id'])
         continue
       

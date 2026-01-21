@@ -1,199 +1,292 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MyRargb Helper</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyRargb Helper</title>
 
-<style>
-  .table {
-    display: grid;
-    grid-template-columns: 60px 150px 200px 100px 100px 100px 200px;
-    border: none;
-    border-radius: 6px;
-    overflow: hidden;
-    font-family: Arial, sans-serif;
-  }
+    <style>
+      .table {
+        display: grid;
+        grid-template-columns: 60px 150px 200px 100px 100px 100px 200px;
+        border: none;
+        border-radius: 6px;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+      }
 
-  .table-header, .table-row {
-    display: contents; /* allow grid layout */
-  }
+      .table-header, .table-row {
+        display: contents; /* allow grid layout */
+      }
 
-  .table div {
-    padding: 10px;
-    border-bottom: 1px solid #ddd;
-    border-right: 1px solid #eee;
-    overflow: hidden;
-    <!-- white-space: nowrap; -->
-    text-overflow: ellipsis;
-  }
+      .table div {
+        padding: 10px;
+        border-bottom: 1px solid #ddd;
+        border-right: 1px solid #eee;
+        overflow: hidden;
+        <!-- white-space: nowrap; -->
+        text-overflow: ellipsis;
+      }
 
-  .table div:last-child {
-    border-right: none;
-  }
+      .table div:last-child {
+        border-right: none;
+      }
 
-  .table-header div {
-    font-weight: bold;
-    background: #f0f0f0;
-    border-bottom: 2px solid #ccc;
-  }
+      .table-header div {
+        font-weight: bold;
+        background: #f0f0f0;
+        border-bottom: 2px solid #ccc;
+      }
 
-  .table-row:hover div {
-    background: #fafafa;
-  }
+      .table-row:hover div {
+        background: #fafafa;
+      }
 
-  /* Make table scroll horizontally on mobile */
-  .table-container {
-    overflow-x: auto;
-  }
+      /* Make table scroll horizontally on mobile */
+      .table-container {
+        overflow-x: auto;
+      }
 
-  .text-center {
-    text-align: center;
-  }
+      .text-center {
+        text-align: center;
+      }
 
-  #mask {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(3px);
-    display: none;             /* hidden by default */
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
-    z-index: 9999;
-  }
+      #mask {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(3px);
+        display: none;             /* hidden by default */
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        z-index: 9999;
+      }
 
-  .loader {
-    width: 48px;
-    height: 48px;
-    border: 5px solid #fff;
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
+      .loader {
+        width: 48px;
+        height: 48px;
+        border: 5px solid #fff;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
 
-  .msg {
-    margin-top: 12px;
-    color: #fff;
-    font-size: 16px;
-  }
+      .msg {
+        margin-top: 12px;
+        color: #fff;
+        font-size: 16px;
+      }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
 
-</style>
-<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-</head>
-<body>
-<h2>MyRargb Helper</h2>
-<input type="text" id="keyword" placeholder="Search..." value="{{keyword}}">
-<input type="text" id="page" placeholder="Page..." value="8">
-<button onclick="crawlMore()">Crawl More!</button>
-<div class="table-container">
-  <div class="table">
+      .hyperlink {
+        background: none;
+        border: none;
+        color: blue;
+        text-decoration: underline;
+        cursor: pointer;
+        padding: 0;
+        font-size: inherit;
+        font-family: inherit;
+      }
 
-    <!-- Header -->
-    <div class="table-header">
-      <div>Index</div>
-      <div>Poster</div>
-      <div>Title</div>
-      <div>Genre</div>
-      <div>Type</div>
-      <div>Score</div>
-      <div>Operations</div>
-    </div>
-
-    {% for item in items %}
-    <div class="table-row">
-      <div class="text-center">{{ loop.index }}</div>
-      <div class="text-center">
-        {% if not item.poster %}
-        <img src="{{ url_for('static', filename='images/default.jpg') }}" alt="No Poster" style="width:50px;height:auto;">
-        {% else %}
-        <img src="{{item.poster}}" alt="Poster" style="width:50px;height:auto;">
-        {% endif %}
-      </div>
-      <div>
-        <a href="{{item.url}}" target="_blank">{{item.title}}</a>
-        <p style="color: gray; font-size: 12px; word-wrap:break-word;">{{item.filename}}</p>
-      </div>
-      <div>{{'' if not item.genre else item.genre}}</div>
-      <div class="text-center">{{'Movie' if item.type == '00' else 'TV series'}}</div>
-      <div class="text-center">{{item.score}}</div>
-      <div>
-        {% if item.marked == '00' %}
-        <button onclick="abandonItem('{{item.id}}')">Abandon</button>
-        <button onclick="watchedItem('{{item.id}}')">Watched</button>
-        {% else %}
-        {{'Abandoned' if item.marked == '01' else 'Watched'  }}
-        {% endif %} 
-      </div>
-    </div>
-    {% endfor %}
-    
-
-  </div>
-</div>
-<div id="mask">
-  <div class="loader"></div>
-  <div class="msg">Processing…</div>
-</div>
-<script>
-  function crawlMore() {
-    const keyword = document.getElementById('keyword').value;
-    const page = document.getElementById('page').value;
-    showMask();
-    axios.get('/crawl_more', {
-        params: {
-            keyword: keyword,
-            page: page
+      dialog {
+          padding: 20px;
+          border-radius: 8px;
+          border: none;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         }
-    })
-    .then(function (response) {
-        // handle success
-        console.log(response.data);
-        hideMask();
-        location.reload();
-    })
-    .catch(function (error) {
-        // handle error
-        console.error(error);
-    });
-  }
 
-  function abandonItem(itemId) {
-    axios.get(`/movies/${itemId}/abandon`)
-    .then(function (response) {
-        alert(response.data.message);
-        location.reload();
-    })
-    .catch(function (error) {
-        console.error(error);
-    });
-  } 
+        dialog::backdrop {
+          background: rgba(0, 0, 0, 0.4);
+        }
 
-  function watchedItem(itemId) {
-    axios.get(`/movies/${itemId}/watched`)
-    .then(function (response) {
-        alert(response.data.message);
-        location.reload();
-    })
-    .catch(function (error) {
-        console.error(error);
-    });
-  } 
+        .actions {
+          margin-top: 12px;
+          text-align: right;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  </head>
+  <body>
+    <dialog id="textDialog">
+      <form method="dialog">
+        <label>
+          Acurate Title：
+          <input type="text" id="title_acurate" />
+        </label>
 
-  function showMask() {
-    document.getElementById('mask').style.display = 'flex';
-  }
+        <div class="actions">
+          <button value="cancel">Cancel</button>
+          <button id="confirmBtn" value="confirm">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+    <h2>MyRargb Helper</h2>
+    <input
+      type="text"
+      id="keyword"
+      placeholder="Search..."
+      value="{{keyword}}"
+    />
+    <input type="text" id="page" placeholder="Page..." value="8" />
+    <button onclick="crawlMore()">Crawl More!</button>
+    <div class="table-container">
+      <div class="table">
+        <!-- Header -->
+        <div class="table-header">
+          <div>Index</div>
+          <div>Poster</div>
+          <div>Title</div>
+          <div>Genre</div>
+          <div>Type</div>
+          <div>Score</div>
+          <div>Operations</div>
+        </div>
 
-  function hideMask() {
-    document.getElementById('mask').style.display = 'none';
-  }
-</script>
-</body>
+        {% for item in items %}
+        <div class="table-row">
+          <div class="text-center">{{ loop.index }}</div>
+          <div class="text-center">
+            {% if not item.poster %}
+            <img
+              src="{{ url_for('static', filename='images/default.jpg') }}"
+              alt="No Poster"
+              style="width: 50px; height: auto"
+            />
+            {% else %}
+            <img
+              src="{{item.poster}}"
+              alt="Poster"
+              style="width: 50px; height: auto"
+            />
+            {% endif %}
+          </div>
+          <div>
+            <a href="{{item.url}}" target="_blank"
+              >{{item.title}}{{'' if not item.title_acurate else
+              item.title_acurate}}</a
+            >
+            <p style="color: gray; font-size: 12px; word-wrap: break-word">
+              {{item.filename}}
+            </p>
+            <button class="hyperlink" onclick="openDialog('{{item.id}}')">
+              Correct
+            </button>
+          </div>
+          <div>{{'' if not item.genre else item.genre}}</div>
+          <div class="text-center">
+            {{'Movie' if item.type == '00' else 'TV series'}}
+          </div>
+          <div class="text-center">
+            {{'-' if not item.score else item.score}}
+          </div>
+          <div>
+            {% if item.marked == '00' %}
+            <button class="hyperlink" onclick="abandonItem('{{item.id}}')">
+              Abandon
+            </button>
+            <button class="hyperlink" onclick="watchedItem('{{item.id}}')">
+              Watched
+            </button>
+            {% else %} {{'Abandoned' if item.marked == '01' else 'Watched' }} {%
+            endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div id="mask">
+      <div class="loader"></div>
+      <div class="msg">Processing…</div>
+    </div>
+    <script>
+      const dialog = document.getElementById("textDialog");
+      const title_acurate = document.getElementById("title_acurate");
+      let correct_id = null;
+
+      dialog.addEventListener("close", () => {
+        if (dialog.returnValue === "confirm") {
+          axios
+            .put(`/movies/${correct_id}/correct`, {
+              title_acurate: title_acurate.value,
+            })
+            .then(function (response) {
+              alert(response.data.message);
+              location.reload();
+            })
+            .catch(function (error) {
+              console.error(error);
+            });
+        }
+      });
+
+      function openDialog(id) {
+        correct_id = id;
+        title_acurate.value = "";
+        dialog.showModal();
+      }
+
+      function crawlMore() {
+        const keyword = document.getElementById("keyword").value;
+        const page = document.getElementById("page").value;
+        showMask();
+        axios
+          .get("/crawl_more", {
+            params: {
+              keyword: keyword,
+              page: page,
+            },
+          })
+          .then(function (response) {
+            // handle success
+            console.log(response.data);
+            hideMask();
+            location.reload();
+          })
+          .catch(function (error) {
+            // handle error
+            console.error(error);
+          });
+      }
+
+      function abandonItem(itemId) {
+        axios
+          .get(`/movies/${itemId}/abandon`)
+          .then(function (response) {
+            alert(response.data.message);
+            location.reload();
+          })
+          .catch(function (error) {
+            console.error(error);
+          });
+      }
+
+      function watchedItem(itemId) {
+        axios
+          .get(`/movies/${itemId}/watched`)
+          .then(function (response) {
+            alert(response.data.message);
+            location.reload();
+          })
+          .catch(function (error) {
+            console.error(error);
+          });
+      }
+
+      function showMask() {
+        document.getElementById("mask").style.display = "flex";
+      }
+
+      function hideMask() {
+        document.getElementById("mask").style.display = "none";
+      }
+    </script>
+  </body>
 </html>

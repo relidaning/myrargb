@@ -5,9 +5,10 @@ from db import db
 from finetuning import model 
 from crawl_imdb import crawl_imdb
 from workflow import Workflow
-
+import logging as logger
 
 app = Flask(__name__)
+logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 CORS(app)  # 允许跨域请求
 
 
@@ -15,7 +16,7 @@ CORS(app)  # 允许跨域请求
 def index():
     keyword = '2025'
     page = 8
-    items = db.get_items(workflow=Workflow.QUERYING, limit=100, order_by='score DESC, marked asc')
+    items = db.get_items(workflow=Workflow.NONE, limit=100, order_by='score DESC, marked asc')
     return render_template('index.html', items=items, keyword=keyword, page=page) 
 
 
@@ -26,7 +27,7 @@ def crawl_more():
 
     crawl_rargb(page, keyword)
     model.filter()
-    crawl_imdb()
+    crawl_imdb(keyword)
     
     return jsonify({"status": "success", "message": f"Crawling more items with keyword: {keyword}, and it's done!"})
 
@@ -51,5 +52,18 @@ def watched_movie(item_id):
     return jsonify({"status": "success", "message": f"Movie {item_id} marked as watched."})
     
     
+@app.route('/movies/<int:item_id>/correct', methods=['PUT'])
+def title_acurate(item_id):
+    title_acurate = request.json.get('title_acurate', '')
+    update_item = {
+        "id": item_id,
+        "title_acurate": title_acurate,
+        "trained_flag": '0' # 0 for training, 1 for trained
+    }
+    db.update_item(update_item)
+    return jsonify({"status": "success", "message": f"Movie {item_id} title was corrected."})
+ 
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=True)
