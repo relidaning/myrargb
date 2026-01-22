@@ -10,6 +10,8 @@ services:
     environment:
       - FLASK_ENV=production
       - CHROME_URL=http://browser:4444
+      - LOGGER_LEVEL=ERROR
+      
 
   browser:
     image: selenium/standalone-chrome:latest

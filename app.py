@@ -2,91 +2,109 @@ from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from crawl_rargb import crawl_rargb
 from db import db
-from finetuning import model 
+from finetuning import model
 from crawl_imdb import crawl_imdb
 from workflow import Workflow
 import logging
+import os
+from dotenv import load_dotenv
 
-
+logger_level = os.getenv("LOGGER_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    level=logger_level,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
-        logging.StreamHandler(),          # 输出到控制台
-        logging.FileHandler("app.log")    # 同时输出到文件
-    ]
+        logging.StreamHandler(),  # 输出到控制台
+        logging.FileHandler("app.log"),  # 同时输出到文件
+    ],
 )
 
 app = Flask(__name__)
-logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 CORS(app)  # 允许跨域请求
 logger = logging.getLogger(__name__)
 
-@app.route('/', methods=['GET'])
+
+@app.route("/", methods=["GET"])
 def index():
-    keyword = '2026'
+    keyword = "2026"
     page = 1
-    items = db.get_items(workflow=Workflow.NONE, limit=100, order_by='score DESC, marked asc')
+    items = db.get_items(
+        workflow=Workflow.NONE, limit=100, order_by="score DESC, marked asc"
+    )
 
     finetunable = True
-    items_traning = db.get_items(workflow=Workflow.TRAINING, limit=100, order_by='id DESC')
+    items_traning = db.get_items(
+        workflow=Workflow.TRAINING, limit=100, order_by="id DESC"
+    )
     count = len(items_traning)
     if count <= 1:
         finetunable = False
 
-    return render_template('index.html', items=items, keyword=keyword, page=page, finetunable=finetunable) 
+    return render_template(
+        "index.html", items=items, keyword=keyword, page=page, finetunable=finetunable
+    )
 
 
-@app.route('/crawl_more', methods=['GET'])
+@app.route("/crawl_more", methods=["GET"])
 def crawl_more():
-    keyword = request.args.get('keyword', '2025')
-    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get("keyword", "2025")
+    page = request.args.get("page", 1, type=int)
 
     crawl_rargb(page, keyword)
     model.filter()
     crawl_imdb(keyword)
-    
-    return jsonify({"status": "success", "message": f"Crawling more items with keyword: {keyword}, and it's done!"})
+
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"Crawling more items with keyword: {keyword}, and it's done!",
+        }
+    )
 
 
-@app.route('/movies/<int:item_id>/abandon', methods=['GET'])
+@app.route("/movies/<int:item_id>/abandon", methods=["GET"])
 def abandon_movie(item_id):
     update_item = {
         "id": item_id,
-        "marked": '01'  # '01' for abandoned
+        "marked": "01",  # '01' for abandoned
     }
     db.update_item(update_item)
-    return jsonify({"status": "success", "message": f"Movie {item_id} marked as abandoned."})
+    return jsonify(
+        {"status": "success", "message": f"Movie {item_id} marked as abandoned."}
+    )
 
 
-@app.route('/movies/<int:item_id>/watched', methods=['GET'])
+@app.route("/movies/<int:item_id>/watched", methods=["GET"])
 def watched_movie(item_id):
     update_item = {
         "id": item_id,
-        "marked": '02'  # '02' for watched
+        "marked": "02",  # '02' for watched
     }
     db.update_item(update_item)
-    return jsonify({"status": "success", "message": f"Movie {item_id} marked as watched."})
-    
-    
-@app.route('/movies/<int:item_id>/correct', methods=['PUT'])
+    return jsonify(
+        {"status": "success", "message": f"Movie {item_id} marked as watched."}
+    )
+
+
+@app.route("/movies/<int:item_id>/correct", methods=["PUT"])
 def title_acurate(item_id):
-    title_acurate = request.json.get('title_acurate', '')
+    title_acurate = request.json.get("title_acurate", "")
     update_item = {
         "id": item_id,
         "title_acurate": title_acurate,
-        "trained_flag": '0' # 0 for training, 1 for trained
+        "trained_flag": "0",  # 0 for training, 1 for trained
     }
     db.update_item(update_item)
-    return jsonify({"status": "success", "message": f"Movie {item_id} title was corrected."})
+    return jsonify(
+        {"status": "success", "message": f"Movie {item_id} title was corrected."}
+    )
 
 
-
-@app.route('/model/finetuning', methods=['POST'])
+@app.route("/model/finetuning", methods=["POST"])
 def finetuning():
-  model.finetune()
-  return jsonify({"status": "success", "message": "Model fine-tuning finished."})
+    model.finetune()
+    return jsonify({"status": "success", "message": "Model fine-tuning finished."})
 
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)

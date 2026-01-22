@@ -1,8 +1,12 @@
 from selenium import webdriver
+import os
 import logging
+from dotenv import load_dotenv
 
 
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
     
 class MySeleniumConfig:
@@ -26,7 +30,7 @@ class MySeleniumConfig:
         logger.info(" [v] Selenium WebDriver initialized.")
 
         self.driver = webdriver.Remote(
-            command_executor="http://localhost:4444",
+            command_executor=os.environ.get('CHROME_URL', ''),
             options=options
         )
 

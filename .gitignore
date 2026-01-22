@@ -8,3 +8,4 @@ my_finetuned_t5/
 myrargb.db
 *.log
 .venv/
+.env
