@@ -5,9 +5,11 @@ from crawl_rargb import crawl_rargb
 from db import db
 from workflow import Workflow
 import logging as logger
+from typing import List
 
 
 logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 class MyRargbModel():
   
@@ -32,10 +34,37 @@ class MyRargbModel():
     
     
   def train(self):
-    data = []
     items = db.get_items(Workflow.TRAINING)
+    self.model_train(items)
+
+  def filter(self):
+    items = db.get_items(workflow=Workflow.FILTERING)
     for item in items:
-      data.append({'id': item['id'], 'noisy': item['filename'], 'clean': item['title']})
+      inputs = self.tokenizer(item['filename'], return_tensors="pt")
+      output = self.model.generate(**inputs)
+      title = self.tokenizer.decode(output[0], skip_special_tokens=True)
+      logger.debug(f'# Original: {item["filename"]} --> Predicted: {title} ')
+      
+      hits = db.get_items(workflow=Workflow.TRAINING, sql=f'and lower(title) = "{title.lower()}"')
+      if len(hits)>0:
+        logger.debug(f'x Found existing items "{title}" in DB, skipping update.')
+        db.del_item(item['id'])
+        continue
+      
+      db.update_item({'id': item['id'], 'title': title})
+
+
+  def finetune(self):
+    items = db.get_items(Workflow.TRAINING)
+    self.model_train(items)
+    for item in items:
+      db.update_item({'id': item['id'], 'trained_flag': '1'})  # Mark as trained
+
+
+  def model_train(self, items: List[dict]):
+    data = []
+    for item in items:
+      data.append({'id': item['id'], 'noisy': item['filename'], 'clean': item['title_acurate']})
     dataset = Dataset.from_list(data)
     dataset = dataset.train_test_split(test_size=0.2)    
     
@@ -65,22 +94,6 @@ class MyRargbModel():
     # Save tokenizer
     self.tokenizer.save_pretrained(self.local_model_path)
 
-
-  def filter(self):
-    items = db.get_items(workflow=Workflow.FILTERING)
-    for item in items:
-      inputs = self.tokenizer(item['filename'], return_tensors="pt")
-      output = self.model.generate(**inputs)
-      title = self.tokenizer.decode(output[0], skip_special_tokens=True)
-      logger.debug(f'# Original: {item["filename"]} --> Predicted: {title} ')
-      
-      hits = db.get_items(workflow=Workflow.TRAINING, sql=f'and lower(title) = "{title.lower()}"')
-      if len(hits)>0:
-        logger.debug(f'x Found existing items "{title}" in DB, skipping update.')
-        db.del_item(item['id'])
-        continue
-      
-      db.update_item({'id': item['id'], 'title': title})
 
 model = MyRargbModel()
 if __name__ == "__main__":

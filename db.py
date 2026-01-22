@@ -5,7 +5,7 @@ from workflow import Workflow
 
 class MyRargbDB:
   
-  
+    # TODO: update statements
   def __init__(self):
     self.conn = sqlite3.connect("myrargb.db", check_same_thread=False)
     self.cur = self.conn.cursor()
@@ -37,7 +37,7 @@ class MyRargbDB:
     if workflow == Workflow.FILTERING:
       exe_sql += " and (title is null or title = '' ) "
     elif workflow == Workflow.TRAINING:
-      exe_sql += " and title is not null and title != '' "
+      exe_sql += " and title_acurate is not null and trained_flag == '0' "
     elif workflow == Workflow.QUERYING:
       exe_sql += " and score is not null and score != '' and score != 'unmatched' "
     elif workflow == Workflow.SCORING:

@@ -14,10 +14,17 @@ CORS(app)  # 允许跨域请求
 
 @app.route('/', methods=['GET'])
 def index():
-    keyword = '2025'
-    page = 8
+    keyword = '2026'
+    page = 1
     items = db.get_items(workflow=Workflow.NONE, limit=100, order_by='score DESC, marked asc')
-    return render_template('index.html', items=items, keyword=keyword, page=page) 
+
+    finetunable = True
+    items_traning = db.get_items(workflow=Workflow.TRAINING, limit=100, order_by='id DESC')
+    count = len(items_traning)
+    if count <= 1:
+        finetunable = False
+
+    return render_template('index.html', items=items, keyword=keyword, page=page, finetunable=finetunable) 
 
 
 @app.route('/crawl_more', methods=['GET'])
@@ -62,7 +69,13 @@ def title_acurate(item_id):
     }
     db.update_item(update_item)
     return jsonify({"status": "success", "message": f"Movie {item_id} title was corrected."})
- 
+
+
+
+@app.route('/model/finetuning', methods=['POST'])
+def finetuning():
+  model.finetune()
+  return jsonify({"status": "success", "message": "Model fine-tuning finished."})
 
 
 if __name__ == '__main__':

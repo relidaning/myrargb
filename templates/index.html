@@ -6,9 +6,15 @@
     <title>MyRargb Helper</title>
 
     <style>
+      .content {
+        max-width: 1200px;   /* 控制内容宽度 */
+        margin: 0 auto;      /* 关键：水平居中 */
+        padding: 16px;
+      }
+
       .table {
         display: grid;
-        grid-template-columns: 60px 150px 200px 100px 100px 100px 200px;
+        grid-template-columns: 60px 80px 400px 200px 100px 100px 200px;
         border: none;
         border-radius: 6px;
         overflow: hidden;
@@ -128,78 +134,83 @@
         </div>
       </form>
     </dialog>
-    <h2>MyRargb Helper</h2>
-    <input
-      type="text"
-      id="keyword"
-      placeholder="Search..."
-      value="{{keyword}}"
-    />
-    <input type="text" id="page" placeholder="Page..." value="8" />
-    <button onclick="crawlMore()">Crawl More!</button>
-    <div class="table-container">
-      <div class="table">
-        <!-- Header -->
-        <div class="table-header">
-          <div>Index</div>
-          <div>Poster</div>
-          <div>Title</div>
-          <div>Genre</div>
-          <div>Type</div>
-          <div>Score</div>
-          <div>Operations</div>
-        </div>
+    <div class="content">
+      <h2>MyRargb Helper</h2>
+      <input
+        type="text"
+        id="keyword"
+        placeholder="Search..."
+        value="{{keyword}}"
+      />
+      <input type="text" id="page" placeholder="Page..." value="8" />
+      <button class="hyperlink" onclick="crawlMore()">Crawl More!</button>
+      {% if finetunable %}
+      <button class="hyperlink" onclick="finetuning()">Finetuning</button>
+      {% endif %}
+      <div class="table-container">
+        <div class="table">
+          <!-- Header -->
+          <div class="table-header">
+            <div>Index</div>
+            <div>Poster</div>
+            <div>Title</div>
+            <div>Genre</div>
+            <div>Type</div>
+            <div>Score</div>
+            <div>Operations</div>
+          </div>
 
-        {% for item in items %}
-        <div class="table-row">
-          <div class="text-center">{{ loop.index }}</div>
-          <div class="text-center">
-            {% if not item.poster %}
-            <img
-              src="{{ url_for('static', filename='images/default.jpg') }}"
-              alt="No Poster"
-              style="width: 50px; height: auto"
-            />
-            {% else %}
-            <img
-              src="{{item.poster}}"
-              alt="Poster"
-              style="width: 50px; height: auto"
-            />
-            {% endif %}
+          {% for item in items %}
+          <div class="table-row">
+            <div class="text-center">{{ loop.index }}</div>
+            <div class="text-center">
+              {% if not item.poster %}
+              <img
+                src="{{ url_for('static', filename='images/default.jpg') }}"
+                alt="No Poster"
+                style="width: 50px; height: auto"
+              />
+              {% else %}
+              <img
+                src="{{item.poster}}"
+                alt="Poster"
+                style="width: 50px; height: auto"
+              />
+              {% endif %}
+            </div>
+            <div>
+              <a href="{{item.url}}" target="_blank"
+                >{{item.title}}{{'' if not item.title_acurate else
+                item.title_acurate}}</a
+              >
+              <p style="color: gray; font-size: 12px; word-wrap: break-word">
+                {{item.filename}}
+              </p>
+              <button class="hyperlink" onclick="openDialog('{{item.id}}')">
+                Correct
+              </button>
+            </div>
+            <div>{{'' if not item.genre else item.genre}}</div>
+            <div class="text-center">
+              {{'Movie' if item.type == '00' else 'TV series'}}
+            </div>
+            <div class="text-center">
+              {{'-' if not item.score else item.score}}
+            </div>
+            <div>
+              {% if item.marked == '00' %}
+              <button class="hyperlink" onclick="abandonItem('{{item.id}}')">
+                Abandon
+              </button>
+              <button class="hyperlink" onclick="watchedItem('{{item.id}}')">
+                Watched
+              </button>
+              {% else %} {{'Abandoned' if item.marked == '01' else 'Watched' }}
+              {% endif %}
+            </div>
           </div>
-          <div>
-            <a href="{{item.url}}" target="_blank"
-              >{{item.title}}{{'' if not item.title_acurate else
-              item.title_acurate}}</a
-            >
-            <p style="color: gray; font-size: 12px; word-wrap: break-word">
-              {{item.filename}}
-            </p>
-            <button class="hyperlink" onclick="openDialog('{{item.id}}')">
-              Correct
-            </button>
-          </div>
-          <div>{{'' if not item.genre else item.genre}}</div>
-          <div class="text-center">
-            {{'Movie' if item.type == '00' else 'TV series'}}
-          </div>
-          <div class="text-center">
-            {{'-' if not item.score else item.score}}
-          </div>
-          <div>
-            {% if item.marked == '00' %}
-            <button class="hyperlink" onclick="abandonItem('{{item.id}}')">
-              Abandon
-            </button>
-            <button class="hyperlink" onclick="watchedItem('{{item.id}}')">
-              Watched
-            </button>
-            {% else %} {{'Abandoned' if item.marked == '01' else 'Watched' }} {%
-            endif %}
-          </div>
+          {% endfor %}
         </div>
-        {% endfor %}
       </div>
     </div>
     <div id="mask">
@@ -286,6 +297,19 @@
 
       function hideMask() {
         document.getElementById("mask").style.display = "none";
+      }
+
+      function finetuning() {
+        showMask();
+        axios
+          .post("/model/finetuning")
+          .then(function (response) {
+            alert(response.data.message);
+            hideMask();
+          })
+          .catch(function (error) {
+            console.error(error);
+          });
       }
     </script>
   </body>
