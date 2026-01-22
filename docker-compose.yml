@@ -5,12 +5,11 @@ services:
       dockerfile: ./docker/Dockerfile
     ports:
       - "5000:5000"
-    volumes:
-      - .:/app
     environment:
       - FLASK_ENV=production
       - CHROME_URL=http://browser:4444
       - LOGGER_LEVEL=ERROR
+    command: /app/.venv/bin/python /app/app.py
       
 
   browser:

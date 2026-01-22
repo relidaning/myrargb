@@ -1,5 +1,5 @@
 # 排除 Git 管理文件
-.git
+.git/
 .gitignore
 
 # 排除模型训练结果和大型权重文件
@@ -25,3 +25,4 @@ logs/
 
 results/
 .venv/
+.env
