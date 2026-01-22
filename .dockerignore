@@ -1,0 +1,27 @@
+# 排除 Git 管理文件
+.git
+.gitignore
+
+# 排除模型训练结果和大型权重文件
+# 假设你的模型保存在 models/ 或 outputs/ 文件夹下
+models/
+outputs/
+*.ckpt
+*.pt
+*.bin
+*.pth
+*.safetensors
+
+# 排除 uv 和 python 产生的本地缓存与虚拟环境
+.venv/
+.uv/
+__pycache__/
+*.pyc
+
+# 排除日志和临时文件
+logs/
+.tmp/
+.DS_Store
+
+results/
+.venv/

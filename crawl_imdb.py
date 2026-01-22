@@ -1,12 +1,13 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 from db import db
 import time
 import argparse
 from workflow import Workflow
-import logging as logger
+from selenium_conf import MySeleniumConfig
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,38 +15,26 @@ logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(m
 
 def crawl_imdb(keyword):
     items = db.get_items(workflow=Workflow.SCORING)
-    logger.debug(f"Found {len(items)} items to update from IMDb.")
+    logger.info(f"Found {len(items)} items to update from IMDb.")
 
+    selenium = MySeleniumConfig()
+    driver = selenium.driver
     for item in items:
     
       url = f"https://m.imdb.com/find/?q={item['title']}&ref_=chttvtp_nv_srb_sm"
-      options = webdriver.ChromeOptions()
-      # MUST run with real UI, Cloudflare blocks headless
-      # comment the next line if you want visible browser
-      # options.add_argument("--headless=new")  
-      options.add_argument("--disable-blink-features=AutomationControlled")
-      options.add_argument("--disable-gpu")
-      options.add_argument("--no-sandbox")
-
-      driver = webdriver.Chrome(
-          service=Service(ChromeDriverManager().install()),
-          options=options
-      )
-
       driver.get(url)
 
       # Wait for Cloudflare to finish JS challenge
-      time.sleep(1)
+      time.sleep(8)
 
       html = driver.page_source
-      driver.quit()
 
       soup = BeautifulSoup(html, "html.parser")
       ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
 
       if not ul:
-        logger.debug("❌ Could not find result table. Cloudflare may need more delay.")
-        logger.debug(html[:500])
+        logger.info("❌ Could not find result table. Cloudflare may need more delay.")
+        logger.info(html[:500])
         update_item = {
           "id": item["id"],
           "score": 'unmatched',
@@ -84,7 +73,7 @@ def crawl_imdb(keyword):
           break
                 
       except Exception as e:
-        logger.debug(f"❌ Error processing item {item['title']}: {e}")
+        logger.info(f"❌ Error processing item {item['title']}: {e}")
         update_item = {
           "id": item["id"],
           "score": 'unmatched',

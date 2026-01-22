@@ -5,12 +5,22 @@ from db import db
 from finetuning import model 
 from crawl_imdb import crawl_imdb
 from workflow import Workflow
-import logging as logger
+import logging
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(),          # 输出到控制台
+        logging.FileHandler("app.log")    # 同时输出到文件
+    ]
+)
 
 app = Flask(__name__)
 logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 CORS(app)  # 允许跨域请求
-
+logger = logging.getLogger(__name__)
 
 @app.route('/', methods=['GET'])
 def index():

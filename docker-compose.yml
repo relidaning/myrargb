@@ -1,0 +1,19 @@
+services:
+  myrargb:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    environment:
+      - FLASK_ENV=production
+      - CHROME_URL=http://browser:4444
+
+  browser:
+    image: selenium/standalone-chrome:latest
+    ports:
+      - "4444:4444"
+    shm_size: "2g"
+      

@@ -1,13 +1,12 @@
-from logging import log as logger
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 from db import db
 import time
 import argparse
-import logging as logger
-from typing import List
+from selenium_conf import MySeleniumConfig
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 logger.basicConfig(level=logger.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -15,34 +14,22 @@ def crawl_rargb(page, keyword, type='movies') -> bool:
   
     
     url = f"https://rargb.to/search/{page}/?search={keyword}&category[]={type}"
-    options = webdriver.ChromeOptions()
-    # MUST run with real UI, Cloudflare blocks headless
-    # comment the next line if you want visible browser
-    # options.add_argument("--headless=new")  
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
-
+    selenium = MySeleniumConfig()
+    driver = selenium.driver
     driver.get(url)
-
     # Wait for Cloudflare to finish JS challenge
-    time.sleep(2)
+    time.sleep(8)
 
     html = driver.page_source
-    driver.quit()
 
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", {"class": "lista2t"})
 
     if not table:
-        logger.debug("❌ Could not find result table. Cloudflare may need more delay.")
-        logger.debug(html[:500])
-        return False
+        logger.info("❌ Could not find result table. Cloudflare may need more delay.")
+        logger.info(html[:500])
+        return []
 
     items = []
     rows = table.find_all("tr")[1:]
