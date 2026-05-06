@@ -6,7 +6,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
-from db import db
+from db.db import db
 from workflow import Workflow
 import logging
 from typing import List
@@ -33,12 +33,8 @@ class MyRargbModel:
         inputs["labels"] = labels["input_ids"]
         return inputs
 
-    def train(self):
-        items = db.get_items(Workflow.TRAINING)
-        self.model_train(items)
-
-    def filter(self):
-        items = db.get_items(workflow=Workflow.FILTERING)
+    def predict(self):
+        items = db.get_items(workflow=Workflow.PREDICT)
         for item in items:
             inputs = self.tokenizer(item["filename"], return_tensors="pt")
             output = self.model.generate(**inputs)
@@ -46,7 +42,7 @@ class MyRargbModel:
             logger.info(f"# Original: {item['filename']} --> Predicted: {title} ")
 
             hits = db.get_items(
-                workflow=Workflow.TRAINING, sql=f'and lower(title) = "{title.lower()}"'
+                workflow=Workflow.NONE, sql=f'and lower(title) = "{title.lower()}"'
             )
             if len(hits) > 0:
                 logger.info(f'x Found existing items "{title}" in DB, skipping update.')
@@ -55,7 +51,7 @@ class MyRargbModel:
 
             db.update_item({"id": item["id"], "title": title})
 
-    def finetune(self):
+    def train(self):
         items = db.get_items(Workflow.TRAINING)
         self.model_train(items)
         for item in items:
@@ -68,7 +64,7 @@ class MyRargbModel:
                 {
                     "id": item["id"],
                     "noisy": item["filename"],
-                    "clean": item["title_acurate"],
+                    "clean": item["title_accurate"],
                 }
             )
         dataset = Dataset.from_list(data)

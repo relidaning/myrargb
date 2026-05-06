@@ -18,7 +18,13 @@ class MyRargbDB:
         size TEXT,
         title TEXT,        
         url TEXT,
-        type TEXT    
+        type TEXT,
+        socre TEXT,
+        genre TEXT,
+        poster TEXT,    
+        marked TEXT,
+        title_accurate TEXT,
+        trained_flag TEXT
     )
     """)
         # TYPE: 00: MOVIES, 01: TV SHOWS, etc.
@@ -43,18 +49,20 @@ class MyRargbDB:
     def get_items(
         self, workflow: Workflow, type="movies", sql="", limit=1000, order_by="id DESC"
     ):
-        exe_sql = " select id, filename, size, title, url, type, score, genre, poster, marked, title_acurate, trained_flag from movies where 1=1 "
+        exe_sql = " select id, filename, size, title, url, type, score, genre, poster, marked, title_accurate, trained_flag from movies where 1=1 "
 
-        if workflow == Workflow.FILTERING:  # for prediction
+        if workflow == Workflow.PREDICT:  # for prediction
             exe_sql += " and (title is null or title = '' ) and (trained_flag != '0' or trained_flag is null) "
         elif workflow == Workflow.TRAINING:  # for finetuning
-            exe_sql += " and title_acurate is not null and trained_flag == '0' "
+            exe_sql += " and title_accurate is not null and trained_flag == '0' "
         elif workflow == Workflow.QUERYING:  # for browsing
             exe_sql += (
                 " and score is not null and score != '' and score != 'unmatched' "
             )
         elif workflow == Workflow.SCORING:  # for searching in imdb
-            exe_sql += " and score is null and title is not null and title != '' "
+            exe_sql += " and ( score is null or score = '' ) and ( title is not null or title_accurate is not null ) "
+        elif workflow == Workflow.NONE:
+            pass
 
         if type == "movies":
             exe_sql += " and type = '00' "
@@ -64,6 +72,7 @@ class MyRargbDB:
 
         exe_sql += f" ORDER BY {order_by} "
         exe_sql += f" LIMIT {limit} "
+        logger.debug(f"Executing SQL: {exe_sql}")
         self.cur.execute(exe_sql)
         rows = self.cur.fetchall()
 
@@ -81,7 +90,7 @@ class MyRargbDB:
                     "genre": row[7],
                     "poster": row[8],
                     "marked": row[9],
-                    "title_acurate": row[10],
+                    "title_accurate": row[10],
                     "trained_flag": row[11],
                 }
             )
@@ -103,7 +112,7 @@ class MyRargbDB:
             "size",
             "url",
             "type",
-            "title_acurate",
+            "title_accurate",
             "trained_flag",
         ]
         fields = []

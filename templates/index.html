@@ -125,7 +125,7 @@
       <form method="dialog">
         <label>
           Acurate Title：
-          <input type="text" id="title_acurate" />
+          <input type="text" id="title_accurate" />
         </label>
 
         <div class="actions">
@@ -142,11 +142,11 @@
         placeholder="Search..."
         value="{{keyword}}"
       />
-      <input type="text" id="page" placeholder="Page..." value="8" />
-      <button class="hyperlink" onclick="crawlMore()">Crawl More!</button>
-      {% if finetunable %}
-      <button class="hyperlink" onclick="finetuning()">Finetuning</button>
-      {% endif %}
+      <input type="text" id="page" placeholder="Page..." value="{{page}}" />
+      <button class="hyperlink" onclick="crawlrargb()">Crawl RARGB!</button>
+      <button class="hyperlink" onclick="predict()">LLM Predicting!</button>
+      <button class="hyperlink" onclick="crawlimdb()">Crawl IMDB!</button>
+      <button class="hyperlink" style="float: right;" onclick="train()">Train!</button>
       <div class="table-container">
         <div class="table">
           <!-- Header -->
@@ -179,10 +179,13 @@
               {% endif %}
             </div>
             <div>
-              <a href="{{item.url}}" target="_blank"
-                >{{item.title}}{{'' if not item.title_acurate else
-                item.title_acurate}}</a
-              >
+              <a href="{{item.url}}" target="_blank">
+                {% if not item.title_accurate %}
+                <font color='red'>{{item.title}}</font>
+                {% else%}
+                <font color='green'>{{item.title_accurate}}</font>
+                {% endif %}
+              </a>
               <p style="color: gray; font-size: 12px; word-wrap: break-word">
                 {{item.filename}}
               </p>
@@ -219,14 +222,14 @@
     </div>
     <script>
       const dialog = document.getElementById("textDialog");
-      const title_acurate = document.getElementById("title_acurate");
+      const title_accurate = document.getElementById("title_accurate");
       let correct_id = null;
 
       dialog.addEventListener("close", () => {
         if (dialog.returnValue === "confirm") {
           axios
             .put(`/movies/${correct_id}/correct`, {
-              title_acurate: title_acurate.value,
+              title_accurate: title_accurate.value,
             })
             .then(function (response) {
               alert(response.data.message);
@@ -240,16 +243,17 @@
 
       function openDialog(id) {
         correct_id = id;
-        title_acurate.value = "";
+        title_accurate.value = "";
         dialog.showModal();
       }
 
-      function crawlMore() {
+
+      function crawlrargb() {
         const keyword = document.getElementById("keyword").value;
         const page = document.getElementById("page").value;
         showMask();
         axios
-          .get("/crawl_more", {
+          .get("/crawl_rargb", {
             params: {
               keyword: keyword,
               page: page,
@@ -267,6 +271,45 @@
           });
       }
 
+      function predict() {
+        showMask();
+        axios
+          .get("/predict")
+          .then(function (response) {
+            // handle success
+            console.log(response.data);
+            hideMask();
+            location.reload();
+          })
+          .catch(function (error) {
+            // handle error
+            console.error(error);
+          });
+      }
+
+      
+      function crawlimdb() {
+        const keyword = document.getElementById("keyword").value;
+        const page = document.getElementById("page").value;
+        showMask();
+        axios
+          .get("/crawl_imdb", {
+            params: {
+              keyword: keyword,
+              page: page,
+            },
+          })
+          .then(function (response) {
+            // handle success
+            console.log(response.data);
+            hideMask();
+            location.reload();
+          })
+          .catch(function (error) {
+            // handle error
+            console.error(error);
+          });
+      }
       function abandonItem(itemId) {
         axios
           .get(`/movies/${itemId}/abandon`)
@@ -299,10 +342,10 @@
         document.getElementById("mask").style.display = "none";
       }
 
-      function finetuning() {
+      function train() {
         showMask();
         axios
-          .post("/model/finetuning")
+          .post("/model/train")
           .then(function (response) {
             alert(response.data.message);
             hideMask();

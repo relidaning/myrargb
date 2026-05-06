@@ -1,8 +1,8 @@
 from bs4 import BeautifulSoup
-from db import db
+from db.db import db
 import time
 import argparse
-from selenium_conf import MySeleniumConfig
+from browserdriver.driver import DriverFactory
 import logging
 
 
@@ -12,13 +12,9 @@ logger = logging.getLogger(__name__)
 def crawl_rargb(page, keyword, type="movies") -> bool:
     url = f"https://rargb.to/search/{page}/?search={keyword}&category[]={type}"
 
-    selenium = MySeleniumConfig()
-    driver = selenium.driver
-    driver.get(url)
-    # Wait for Cloudflare to finish JS challenge
-    time.sleep(8)
-
-    html = driver.page_source
+    driver = DriverFactory().create_driver()
+    html = driver.fetch(url)
+    logger.debug(f"✔️Fetched HTML content: {html[:500]}")
 
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", {"class": "lista2t"})

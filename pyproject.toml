@@ -79,6 +79,7 @@ dependencies = [
     "types-urllib3==1.26.25.14",
     "typing-extensions==4.15.0",
     "tzdata==2025.3",
+    "undetected-chromedriver>=3.5.5",
     "urllib3==2.6.3",
     "webdriver-manager==4.0.2",
     "websocket-client==1.9.0",

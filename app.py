@@ -1,23 +1,24 @@
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
-from crawl_rargb import crawl_rargb
-from db import db
-from finetuning import model
-from crawl_imdb import crawl_imdb
+from crawler.crawl_rargb import crawl_rargb
+from db.db import db
+from model.finetuning import model
+from crawler.crawl_imdb import crawl_imdb
 from workflow import Workflow
 import logging
 import os
 from dotenv import load_dotenv
 
-logger_level = os.getenv("LOGGER_LEVEL", "INFO").upper()
+DEBUG = os.getenv("DEBUG")
+
+logger_level = "DEBUG" if DEBUG else os.getenv("LOGGER_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=logger_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),  # 输出到控制台
-        logging.FileHandler("app.log"),  # 同时输出到文件
-    ],
+    handlers=[logging.StreamHandler(), logging.FileHandler("app.log", mode="a")],
 )
+
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -45,19 +46,40 @@ def index():
     )
 
 
-@app.route("/crawl_more", methods=["GET"])
-def crawl_more():
+@app.route("/crawl_rargb", methods=["GET"])
+def crawl_from_rargb():
     keyword = request.args.get("keyword", "2025")
     page = request.args.get("page", 1, type=int)
 
     crawl_rargb(page, keyword)
-    model.filter()
-    crawl_imdb(keyword)
 
     return jsonify(
         {
             "status": "success",
             "message": f"Crawling more items with keyword: {keyword}, and it's done!",
+        }
+    )
+
+
+@app.route("/predict", methods=["GET"])
+def predict():
+    model.predict()
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"Done predicting!",
+        }
+    )
+
+
+@app.route("/crawl_imdb", methods=["GET"])
+def crawl_from_imdb():
+    keyword = request.args.get("keyword", "2025")
+    crawl_imdb(keyword)
+    return jsonify(
+        {
+            "status": "success",
+            "message": f"crwaling imdb, done!",
         }
     )
 
@@ -87,11 +109,11 @@ def watched_movie(item_id):
 
 
 @app.route("/movies/<int:item_id>/correct", methods=["PUT"])
-def title_acurate(item_id):
-    title_acurate = request.json.get("title_acurate", "")
+def title_accurate(item_id):
+    title_accurate = request.json.get("title_accurate", "")
     update_item = {
         "id": item_id,
-        "title_acurate": title_acurate,
+        "title_accurate": title_accurate,
         "trained_flag": "0",  # 0 for training, 1 for trained
     }
     db.update_item(update_item)
@@ -100,11 +122,11 @@ def title_acurate(item_id):
     )
 
 
-@app.route("/model/finetuning", methods=["POST"])
-def finetuning():
-    model.finetune()
-    return jsonify({"status": "success", "message": "Model fine-tuning finished."})
+@app.route("/model/train", methods=["POST"])
+def train():
+    model.train()
+    return jsonify({"status": "success", "message": "Model training finished."})
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=DEBUG)
