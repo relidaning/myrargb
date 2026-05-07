@@ -2,8 +2,9 @@ from enum import Enum
 
 
 class Workflow(Enum):
-    TRAINING = 0
-    PREDICT = 1
-    SCORING = 2
-    QUERYING = 3
-    NONE = 4
+    TRAINING = "10"
+    PREDICT = "20"
+    SCORING = "30"
+    QUERYING = "40"
+    DEDUPLICATION = "50"
+    NONE = "00"

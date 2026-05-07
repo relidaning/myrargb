@@ -7,43 +7,65 @@ logger = logging.getLogger(__name__)
 
 
 class MyRargbDB:
-    # TODO: update statements
     def __init__(self):
         self.conn = sqlite3.connect("myrargb.db", check_same_thread=False)
         self.cur = self.conn.cursor()
         self.cur.execute("""
-    CREATE TABLE IF NOT EXISTS movies (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT,
-        size TEXT,
-        title TEXT,        
-        url TEXT,
-        type TEXT,
-        socre TEXT,
-        genre TEXT,
-        poster TEXT,    
-        marked TEXT,
-        title_accurate TEXT,
-        trained_flag TEXT
-    )
-    """)
+            CREATE TABLE IF NOT EXISTS movies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT,
+                size TEXT,
+                title TEXT,        
+                url TEXT,
+                type TEXT,
+                socre TEXT,
+                genre TEXT,
+                poster TEXT,    
+                marked TEXT default '00',
+                title_accurate TEXT,
+                trained_flag TEXT,
+                added text
+            )
+        """)
         # TYPE: 00: MOVIES, 01: TV SHOWS, etc.
+        self.cur.execute(
+            " create table if not exists collected (start text, end text) "
+        )
         self.conn.commit()
 
     def save_items(self, items):
+        start, end = None, None
         for item in items:
+            self.cur.execute(" select start, end from collected ")
+            rows = self.cur.fetchall()
+            if not rows:
+                start, end = item["added"], item["added"]
+                self.cur.execute(
+                    " insert into collected (start, end) values (?, ?) ",
+                    (start, end),
+                )
+            else:
+                start, end = rows[0]
+                if item["added"] > start and item["added"] < end:
+                    continue
+
             self.cur.execute(
                 """
-        INSERT INTO movies (filename, size, url, type, genre) VALUES (?, ?, ?, ?, ?)
-      """,
+                    INSERT INTO movies (filename, size, url, type, added) VALUES (?, ?, ?, ?, ?)
+                """,
                 (
                     item["filename"],
                     item["size"],
                     item["url"],
                     item["type"],
-                    item["genre"] if "genre" in item else "",
+                    item["added"],
                 ),
             )
+            if item["added"] < start:
+                start = item["added"]
+            else:
+                end = item["added"]
+            self.cur.execute(" update collected set start = ?, end = ? ", (start, end))
             self.conn.commit()
 
     def get_items(
@@ -61,6 +83,8 @@ class MyRargbDB:
             )
         elif workflow == Workflow.SCORING:  # for searching in imdb
             exe_sql += " and ( score is null or score = '' ) and ( title is not null or title_accurate is not null ) "
+        elif workflow == Workflow.DEDUPLICATION:  # for searching in imdb
+            exe_sql += " and title is not null and title != '' "
         elif workflow == Workflow.NONE:
             pass
 

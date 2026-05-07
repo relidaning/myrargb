@@ -16,8 +16,6 @@ Here is how it works:
 ## Usages
 
 ```bash
-# pull t5-small on ollama and run it first
-ollama run t5-small
 cd myrargb
 uv sync
 python app.py

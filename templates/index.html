@@ -117,6 +117,17 @@
           margin-top: 12px;
           text-align: right;
         }
+      #notification {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #333;
+        color: white;
+        padding: 15px 25px;
+        border-radius: 5px;
+        transition: opacity 0.5s;
+      }
+      .hidden { opacity: 0; pointer-events: none; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   </head>
@@ -134,6 +145,7 @@
         </div>
       </form>
     </dialog>
+    <div id="notification" class="hidden">Done!</div>
     <div class="content">
       <h2>MyRargb Helper</h2>
       <input
@@ -146,7 +158,9 @@
       <button class="hyperlink" onclick="crawlrargb()">Crawl RARGB!</button>
       <button class="hyperlink" onclick="predict()">LLM Predicting!</button>
       <button class="hyperlink" onclick="crawlimdb()">Crawl IMDB!</button>
-      <button class="hyperlink" style="float: right;" onclick="train()">Train!</button>
+      <button class="hyperlink" style="float: right" onclick="train()">
+        Train!
+      </button>
       <div class="table-container">
         <div class="table">
           <!-- Header -->
@@ -181,9 +195,9 @@
             <div>
               <a href="{{item.url}}" target="_blank">
                 {% if not item.title_accurate %}
-                <font color='red'>{{item.title}}</font>
+                <font color="red">{{item.title}}</font>
                 {% else%}
-                <font color='green'>{{item.title_accurate}}</font>
+                <font color="green">{{item.title_accurate}}</font>
                 {% endif %}
               </a>
               <p style="color: gray; font-size: 12px; word-wrap: break-word">
@@ -231,8 +245,8 @@
             .put(`/movies/${correct_id}/correct`, {
               title_accurate: title_accurate.value,
             })
-            .then(function (response) {
-              alert(response.data.message);
+            .then(async function (response) {
+              await showToast(response.data.message);
               location.reload();
             })
             .catch(function (error) {
@@ -246,7 +260,6 @@
         title_accurate.value = "";
         dialog.showModal();
       }
-
 
       function crawlrargb() {
         const keyword = document.getElementById("keyword").value;
@@ -287,7 +300,6 @@
           });
       }
 
-      
       function crawlimdb() {
         const keyword = document.getElementById("keyword").value;
         const page = document.getElementById("page").value;
@@ -313,8 +325,8 @@
       function abandonItem(itemId) {
         axios
           .get(`/movies/${itemId}/abandon`)
-          .then(function (response) {
-            alert(response.data.message);
+          .then(async function (response) {
+            await showToast(response.data.message);
             location.reload();
           })
           .catch(function (error) {
@@ -325,8 +337,8 @@
       function watchedItem(itemId) {
         axios
           .get(`/movies/${itemId}/watched`)
-          .then(function (response) {
-            alert(response.data.message);
+          .then(async function (response) {
+            await showToast(response.data.message);
             location.reload();
           })
           .catch(function (error) {
@@ -346,13 +358,25 @@
         showMask();
         axios
           .post("/model/train")
-          .then(function (response) {
-            alert(response.data.message);
+          .then(async function (response) {
+            await showToast(response.data.message);
             hideMask();
           })
           .catch(function (error) {
             console.error(error);
           });
+      }
+
+      function showToast(msg, duration = 1500) {
+        return new Promise((resolv) => {
+          const toast = document.getElementById("notification");
+          toast.textContent = msg;
+          toast.classList.remove("hidden");
+          setTimeout(() => {
+            toast.classList.add("hidden");
+            resolv();
+          }, duration);
+        });
       }
     </script>
   </body>

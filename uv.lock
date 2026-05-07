@@ -145,6 +145,15 @@ wheels = [
 ]
 
 [[package]]
+name = "bloom-filter"
+version = "1.3.3"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/b2/42/43d11c75b769cb4e7ca1fd756c4ac98db5144ce2e00711a25dcbe1412648/bloom_filter-1.3.3.tar.gz", hash = "sha256:8c230b748565c0b7493923542be9658d9a247d3205352d4f65d428a4bf462ec8" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/b3/bf/6f08439d017abdbf1594f5acfdf39d0c0f2d9a16eefdb69f334a5d5e7e3a/bloom_filter-1.3.3-py3-none-any.whl", hash = "sha256:937f3e6843fd137aa8a7723c556b970e9bc8a55e2100d86d46262469ae128dd1" },
+]
+
+[[package]]
 name = "bs4"
 version = "0.0.2"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -636,6 +645,7 @@ dependencies = [
     { name = "attrs" },
     { name = "beautifulsoup4" },
     { name = "blinker" },
+    { name = "bloom-filter" },
     { name = "bs4" },
     { name = "certifi" },
     { name = "cffi" },
@@ -723,6 +733,7 @@ requires-dist = [
     { name = "attrs", specifier = "==25.4.0" },
     { name = "beautifulsoup4", specifier = "==4.14.3" },
     { name = "blinker", specifier = "==1.9.0" },
+    { name = "bloom-filter", specifier = ">=1.3.3" },
     { name = "bs4", specifier = "==0.0.2" },
     { name = "certifi", specifier = "==2026.1.4" },
     { name = "cffi", specifier = "==2.0.0" },

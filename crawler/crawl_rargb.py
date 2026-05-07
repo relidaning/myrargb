@@ -29,27 +29,18 @@ def crawl_rargb(page, keyword, type="movies") -> bool:
 
     for r in rows:
         cols = r.find_all("td")
-        if len(cols) < 2:
-            logger.debug("❌ Not enough columns in row, skipping.")
-            continue
 
         a = cols[1].find("a")
-        if not a:
-            logger.debug("❌ No link found in row, skipping.")
-            continue
-
         items.append(
             {
                 "filename": a.text.strip(),
-                "url": "https://rargb.to" + a["href"],
+                "url": f"https://rargb.to{a['href']}",
                 "size": cols[4].text.strip(),
                 "type": "00" if type == "movies" else "01",
-                "genre": cols[1].find("span").text.strip()
-                if cols[1].find("span")
-                else "",
+                "added": cols[3].text.strip(),
             }
         )
-        logger.debug(f"Found item: {items[-1]}")
+        logger.info(f"Found item: {items[-1]}")
 
     db.save_items(items)
 

@@ -2,7 +2,7 @@ from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from crawler.crawl_rargb import crawl_rargb
 from db.db import db
-from model.finetuning import model
+from model.model import model
 from crawler.crawl_imdb import crawl_imdb
 from workflow import Workflow
 import logging
@@ -126,6 +126,24 @@ def title_accurate(item_id):
 def train():
     model.train()
     return jsonify({"status": "success", "message": "Model training finished."})
+
+
+from utils.bloom_utils import BloomUtils
+
+
+@app.route("/bloom/deduplicate", methods=["GET"])
+def deduplicate():
+    bf = BloomUtils()
+    items = db.get_items(workflow=Workflow.DEDUPLICATION, type="movies")
+    for item in items:
+        title = item["title"]  # title is the 4th column
+        if title and bf.hasItem(title):
+            db.del_item(item_id=item["id"])  # item_id is the 1st column
+            logger.info(f"Duplicate item found and removed: {title}")
+        else:
+            bf.add(title)
+            logger.info(f"Item added to Bloom filter: {title}")
+    return jsonify({"status": "success", "message": "Deduplication completed."})
 
 
 if __name__ == "__main__":
