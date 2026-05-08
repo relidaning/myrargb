@@ -63,7 +63,8 @@ def crawl_from_rargb():
 
 @app.route("/predict", methods=["GET"])
 def predict():
-    model.predict()
+    items = db.get_items(workflow=Workflow.PREDICT)
+    model.predict(items)
     return jsonify(
         {
             "status": "success",
@@ -124,7 +125,11 @@ def title_accurate(item_id):
 
 @app.route("/model/train", methods=["POST"])
 def train():
-    model.train()
+    items = db.get_items(Workflow.TRAINING)
+    model.train(items)
+    for item in items:
+        db.update_item({"id": item["id"], "trained_flag": "1"})  # Mark as trained
+
     return jsonify({"status": "success", "message": "Model training finished."})
 
 

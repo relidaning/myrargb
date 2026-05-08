@@ -23,7 +23,7 @@ class MyRargbDB:
                 poster TEXT,    
                 marked TEXT default '00',
                 title_accurate TEXT,
-                trained_flag TEXT,
+                trained_flag TEXT default '0',
                 added text
             )
         """)
@@ -31,6 +31,7 @@ class MyRargbDB:
         self.cur.execute(
             " create table if not exists collected (start text, end text) "
         )
+        self._migrate()
         self.conn.commit()
 
     def save_items(self, items):
@@ -51,7 +52,7 @@ class MyRargbDB:
 
             self.cur.execute(
                 """
-                    INSERT INTO movies (filename, size, url, type, added) VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO movies (filename, size, url, type, added, trained_flag) VALUES (?, ?, ?, ?, ?, '0')
                 """,
                 (
                     item["filename"],
@@ -74,9 +75,9 @@ class MyRargbDB:
         exe_sql = " select id, filename, size, title, url, type, score, genre, poster, marked, title_accurate, trained_flag from movies where 1=1 "
 
         if workflow == Workflow.PREDICT:  # for prediction
-            exe_sql += " and (title is null or title = '' ) and (trained_flag != '0' or trained_flag is null) "
+            exe_sql += " and (title is null or title = '' ) and (trained_flag != '1') "
         elif workflow == Workflow.TRAINING:  # for finetuning
-            exe_sql += " and title_accurate is not null and trained_flag == '0' "
+            exe_sql += " and title_accurate is not null and trained_flag = '0' "
         elif workflow == Workflow.QUERYING:  # for browsing
             exe_sql += (
                 " and score is not null and score != '' and score != 'unmatched' "
@@ -176,15 +177,19 @@ class MyRargbDB:
                 )
         self.conn.commit()
 
-    def del_duplicates(self):
-        logger.info("# Excuting duplicate removal...")
-        self.cur.execute("""
-    DELETE FROM movies
-    WHERE id NOT IN (
-        SELECT MIN(id)
-        FROM movies
-        GROUP BY title
-    """)
+    def _migrate(self):
+        existing = {row[1] for row in self.cur.execute("PRAGMA table_info(movies)")}
+        migrations = {
+            "score": "ALTER TABLE movies ADD COLUMN score TEXT",
+            "genre": "ALTER TABLE movies ADD COLUMN genre TEXT",
+            "poster": "ALTER TABLE movies ADD COLUMN poster TEXT",
+            "title_accurate": "ALTER TABLE movies ADD COLUMN title_accurate TEXT",
+            "trained_flag": "ALTER TABLE movies ADD COLUMN trained_flag TEXT DEFAULT '0'",
+            "marked": "ALTER TABLE movies ADD COLUMN marked TEXT DEFAULT '00'",
+        }
+        for col, sql in migrations.items():
+            if col not in existing:
+                self.cur.execute(sql)
         self.conn.commit()
 
     def __del__(self):

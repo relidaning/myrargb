@@ -5,11 +5,12 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     Trainer,
     TrainingArguments,
+    EarlyStoppingCallback,
 )
 from db.db import db
-from workflow import Workflow
 import logging
 from typing import List
+from utils.bloom_utils import BloomUtils
 
 
 logger = logging.getLogger(__name__)
@@ -27,43 +28,68 @@ class MyRargbModel:
             self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
     def tokenize(self, batch):
-        inputs = self.tokenizer(batch["noisy"], padding=True, truncation=True)
-        with self.tokenizer.as_target_tokenizer():
-            labels = self.tokenizer(batch["clean"], padding=True, truncation=True)
-        inputs["labels"] = labels["input_ids"]
+        padding = "max_length"
+        max_length = 64
+        inputs = self.tokenizer(
+            batch["noisy"],
+            padding=padding,
+            truncation=True,
+            max_length=max_length,
+        )
+        labels = self.tokenizer(
+            text_target=batch["clean"],
+            padding=padding,
+            truncation=True,
+            max_length=max_length,
+        )
+        label_ids = labels["input_ids"]
+        # VERY IMPORTANT
+        label_ids = [
+            [token if token != self.tokenizer.pad_token_id else -100 for token in label]
+            for label in label_ids
+        ]
+        inputs["labels"] = label_ids
+
         return inputs
 
-    def predict(self):
-        items = db.get_items(workflow=Workflow.PREDICT)
+    def predict(self, items: List[dict]):
+        device = self.model.device
         for item in items:
-            inputs = self.tokenizer(item["filename"], return_tensors="pt")
-            output = self.model.generate(**inputs)
+            input = self.tokenizer(
+                f"clean the title: {item['filename']}", return_tensors="pt"
+            )
+            input = {k: v.to(device) for k, v in input.items()}
+            output = self.model.generate(
+                **input,
+                max_new_tokens=64,
+                min_new_tokens=4,
+                num_beams=4,
+                early_stopping=True,
+            )
             title = self.tokenizer.decode(output[0], skip_special_tokens=True)
             logger.info(f"# Original: {item['filename']} --> Predicted: {title} ")
+            if not title:
+                logger.info(
+                    f"x No title generated for: {item['filename']}, skipping update."
+                )
+                continue
 
-            hits = db.get_items(
-                workflow=Workflow.NONE, sql=f'and lower(title) = "{title.lower()}"'
-            )
-            if len(hits) > 0:
-                logger.info(f'x Found existing items "{title}" in DB, skipping update.')
+            bf = BloomUtils()
+            hasItem = bf.hasItem(title)
+            if hasItem:
+                logger.info(f"x Found existing items: {title} in DB, skipping update.")
                 db.del_item(item["id"])
                 continue
 
             db.update_item({"id": item["id"], "title": title})
 
-    def train(self):
-        items = db.get_items(Workflow.TRAINING)
-        self.model_train(items)
-        for item in items:
-            db.update_item({"id": item["id"], "trained_flag": "1"})  # Mark as trained
-
-    def model_train(self, items: List[dict]):
+    def train(self, items: List[dict]):
         data = []
         for item in items:
             data.append(
                 {
                     "id": item["id"],
-                    "noisy": item["filename"],
+                    "noisy": f"clean the title: {item['filename']}",
                     "clean": item["title_accurate"],
                 }
             )
@@ -76,9 +102,16 @@ class MyRargbModel:
         # Training
         training_args = TrainingArguments(
             output_dir="./results",
-            num_train_epochs=2,
+            num_train_epochs=50,
+            learning_rate=2e-5,
+            weight_decay=0.01,
             per_device_train_batch_size=2,
             logging_dir="./logs",
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            metric_for_best_model="eval_loss",
+            greater_is_better=False,
+            save_total_limit=2,
         )
 
         trainer = Trainer(
@@ -86,7 +119,8 @@ class MyRargbModel:
             args=training_args,
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)],
         )
 
         trainer.train()
@@ -98,5 +132,3 @@ class MyRargbModel:
 
 
 model = MyRargbModel()
-if __name__ == "__main__":
-    model.filter()

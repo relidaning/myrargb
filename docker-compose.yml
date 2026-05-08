@@ -9,12 +9,13 @@ services:
       - FLASK_ENV=production
       - CHROME_URL=http://browser:4444
       - LOGGER_LEVEL=ERROR
-    command: /app/.venv/bin/python /app/app.py
+      - HTTP_PROXY=http://172.17.0.1:10808
+      - HTTPS_PROXY=http://172.17.0.1:10808
       
 
-  browser:
-    image: selenium/standalone-chrome:latest
-    ports:
-      - "4444:4444"
-    shm_size: "2g"
+  # browser:
+  #   image: selenium/standalone-chrome:latest
+  #   ports:
+  #     - "4444:4444"
+  #   shm_size: "2g"
       

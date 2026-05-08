@@ -9,3 +9,5 @@ myrargb.db
 *.log
 .venv/
 .env
+bf.bin
+

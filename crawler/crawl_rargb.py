@@ -14,14 +14,14 @@ def crawl_rargb(page, keyword, type="movies") -> bool:
 
     driver = DriverFactory().create_driver()
     html = driver.fetch(url)
-    logger.debug(f"✔️Fetched HTML content: {html[:500]}")
 
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table", {"class": "lista2t"})
 
     if not table:
-        logger.info("❌ Could not find result table. Cloudflare may need more delay.")
-        logger.info(html[:500])
+        logger.error(
+            "❌ Could not find result table. Cloudflare may need more delay.\n {html}"
+        )
         return False
 
     items = []

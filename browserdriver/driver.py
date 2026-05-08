@@ -76,10 +76,34 @@ class UndetectedChromeBrowserDriver(BrowserDriver):
         return html
 
 
+class PlaywrightDriver(BrowserDriver):
+    def __init__(self):
+        from playwright.sync_api import sync_playwright
+
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch(headless=True)
+        self.context = self.browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"
+        )
+
+    def __del__(self):
+        self.browser.close()
+        self.playwright.stop()
+        logger.info(" [x] Playwright browser closed.")
+
+    def fetch(self, url: str) -> str:
+        page = self.context.new_page()
+        page.goto(url, wait_until="domcontentloaded")
+        html = page.content()
+        page.close()
+        return html
+
+
 class DriverFactory:
     @staticmethod
     def create_driver() -> BrowserDriver:
-        return UndetectedChromeBrowserDriver()
+        # return UndetectedChromeBrowserDriver()
+        return PlaywrightDriver()
 
 
 if __name__ == "__main__":

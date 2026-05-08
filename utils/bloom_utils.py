@@ -6,10 +6,18 @@ class BloomUtils:
         self.instance = BloomFilter(filename="./bf.bin")
 
     def add(self, item: str) -> None:
-        self.instance.add(item)
+        self.instance.add(deal_string(item))
 
     def hasItem(self, item: str) -> bool:
-        return item in self.instance
+        item = deal_string(item)
+        if item == "":
+            return True
+        else:
+            return item in self.instance
+
+
+def deal_string(s: str) -> str:
+    return s.replace(".", " ").lower().strip()
 
 
 if __name__ == "__main__":

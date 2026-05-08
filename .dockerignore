@@ -5,7 +5,9 @@
 # 排除模型训练结果和大型权重文件
 # 假设你的模型保存在 models/ 或 outputs/ 文件夹下
 models/
+results/
 outputs/
+my_finetuned_t5/
 *.ckpt
 *.pt
 *.bin
@@ -26,3 +28,6 @@ logs/
 results/
 .venv/
 .env
+
+bf.bin
+myrargb.db
