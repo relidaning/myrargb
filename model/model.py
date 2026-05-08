@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 class MyRargbModel:
-    def __init__(self, model_name="t5-small", local_model_path="./my_finetuned_t5"):
+    def __init__(
+        self, model_name="t5-small", local_model_path="./data/my_finetuned_t5"
+    ):
         self.model_name = model_name
         self.local_model_path = local_model_path
         if os.path.exists(local_model_path):
@@ -101,7 +103,7 @@ class MyRargbModel:
 
         # Training
         training_args = TrainingArguments(
-            output_dir="./results",
+            output_dir="./data/results",
             num_train_epochs=50,
             learning_rate=2e-5,
             weight_decay=0.01,

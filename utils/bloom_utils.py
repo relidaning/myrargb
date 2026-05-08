@@ -3,7 +3,7 @@ from bloom_filter import BloomFilter
 
 class BloomUtils:
     def __init__(self):
-        self.instance = BloomFilter(filename="./bf.bin")
+        self.instance = BloomFilter(filename="./data/bf.bin")
 
     def add(self, item: str) -> None:
         self.instance.add(deal_string(item))

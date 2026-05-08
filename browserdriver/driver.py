@@ -81,21 +81,93 @@ class PlaywrightDriver(BrowserDriver):
         from playwright.sync_api import sync_playwright
 
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=True)
-        self.context = self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/"
+        self.browser = self.playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--no-first-run",
+                "--no-zygote",
+                "--disable-gpu",  # counterintuitively helps in containers
+                "--window-size=1920,1080",
+            ],
         )
+        self.context = self.browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            locale="en-US",
+            timezone_id="America/New_York",
+            permissions=["geolocation"],
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"Windows"',
+            },
+        )
+        self._inject_stealth_scripts()
 
-    def __del__(self):
-        self.browser.close()
-        self.playwright.stop()
-        logger.info(" [x] Playwright browser closed.")
+    def _inject_stealth_scripts(self):
+        self.context.add_init_script("""
+            // Remove webdriver flag
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+            // Fake plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                    { name: 'Native Client', filename: 'internal-nacl-plugin' },
+                ],
+            });
+
+            // Fake languages
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+
+            // Add window.chrome
+            window.chrome = {
+                runtime: {
+                    PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' },
+                    PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+                    PlatformNaclArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+                    RequestUpdateCheckStatus: { THROTTLED: 'throttled', NO_UPDATE: 'no_update', UPDATE_AVAILABLE: 'update_available' },
+                    OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update', SHARED_MODULE_UPDATE: 'shared_module_update' },
+                    OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
+                },
+            };
+
+            // Permissions API
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications'
+                    ? Promise.resolve({ state: Notification.permission })
+                    : originalQuery(parameters)
+            );
+        """)
 
     def fetch(self, url: str) -> str:
         page = self.context.new_page()
-        page.goto(url, wait_until="domcontentloaded")
-        html = page.content()
-        page.close()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+            # Wait for WAF challenge to resolve — this is the key fix
+            # AWS WAF challenge runs JS and reloads; wait for the real content
+            for _ in range(5):
+                content = page.content()
+                if "challenge-container" in content or "awswaf" in content.lower():
+                    page.wait_for_timeout(3000)  # Let JS challenge execute
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                else:
+                    break
+
+            html = page.content()
+        finally:
+            page.close()
         return html
 
 

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class MyRargbDB:
     def __init__(self):
-        self.conn = sqlite3.connect("myrargb.db", check_same_thread=False)
+        self.conn = sqlite3.connect("./data/myrargb.db", check_same_thread=False)
         self.cur = self.conn.cursor()
         self.cur.execute("""
             CREATE TABLE IF NOT EXISTS movies (

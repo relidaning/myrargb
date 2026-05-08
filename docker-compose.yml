@@ -11,7 +11,10 @@ services:
       - LOGGER_LEVEL=ERROR
       - HTTP_PROXY=http://172.17.0.1:10808
       - HTTPS_PROXY=http://172.17.0.1:10808
-      
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./data:/app/data
+    runtime: nvidia
 
   # browser:
   #   image: selenium/standalone-chrome:latest

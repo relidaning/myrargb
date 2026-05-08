@@ -10,41 +10,36 @@ logger = logging.getLogger(__name__)
 
 def crawl_imdb(keyword):
     items = db.get_items(workflow=Workflow.SCORING)
-    logger.info(f"Found {len(items)} items to update from IMDb.")
+    logger.info(f"✅Found {len(items)} items to update from IMDb.")
 
     driver = DriverFactory().create_driver()
     for item in items:
         title = item["title_accurate"] if item["title_accurate"] else item["title"]
-        url = f"https://m.imdb.com/find/?q={title}&ref_=chttvtp_nv_srb_sm"
-        html = driver.fetch(url)
-
-        soup = BeautifulSoup(html, "html.parser")
-        ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
-
-        if not ul:
-            logger.info(
-                "❌ Could not find result table. Cloudflare may need more delay."
-            )
-            logger.info(html[:500])
-            update_item = {
-                "id": item["id"],
-                "score": "unmatched",
-            }
-            db.update_item(update_item)
+        if not title:
+            logger.error(f"❓item: {item} has no title yet.")
             continue
 
+        url = f"https://m.imdb.com/find/?q={title}&ref_=chttvtp_nv_srb_sm"
+
         try:
+            html = driver.fetch(url)
+            if not html:
+                logger.error(f"error in fetching.")
+                continue
+
+            soup = BeautifulSoup(html, "html.parser")
+            if not soup:
+                logger.error(f"error in parsing.\n{html}")
+
+            ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
+            if not ul:
+                logger.error(f"❌ Could not find result table:\n{soup}")
+                continue
+
             lis = ul.find_all("li", {"class": "ipc-metadata-list-summary-item"})
 
-            if lis is None or len(lis) == 0:
-                logger.debug(
-                    "❌ Could not find result table. Cloudflare may need more delay."
-                )
-                update_item = {
-                    "id": item["id"],
-                    "score": "unmatched",
-                }
-                db.update_item(update_item)
+            if not lis or len(lis) == 0:
+                logger.error(f"❌ Could not find li:{ul}")
                 continue
 
             for li in lis:
@@ -68,7 +63,7 @@ def crawl_imdb(keyword):
                 break
 
         except Exception as e:
-            logger.error(f"❌ Error processing item {item['title']}: {e}")
+            logger.error(f"❌ Error processing item {item}: {e}")
             update_item = {
                 "id": item["id"],
                 "score": "unmatched",
