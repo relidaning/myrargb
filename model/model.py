@@ -7,13 +7,15 @@ from transformers import (
     TrainingArguments,
     EarlyStoppingCallback,
 )
-from db.db import db
 import logging
 from typing import List
 from utils.bloom_utils import BloomUtils
-
+from db_model import Movie
+from db.repository import MovieRepository
 
 logger = logging.getLogger(__name__)
+
+movieRepository = MovieRepository()
 
 
 class MyRargbModel:
@@ -54,11 +56,11 @@ class MyRargbModel:
 
         return inputs
 
-    def predict(self, items: List[dict]):
+    def predict(self, items: List[Movie]):
         device = self.model.device
         for item in items:
             input = self.tokenizer(
-                f"clean the title: {item['filename']}", return_tensors="pt"
+                f"clean the title: {item.filename}", return_tensors="pt"
             )
             input = {k: v.to(device) for k, v in input.items()}
             output = self.model.generate(
@@ -69,10 +71,10 @@ class MyRargbModel:
                 early_stopping=True,
             )
             title = self.tokenizer.decode(output[0], skip_special_tokens=True)
-            logger.info(f"# Original: {item['filename']} --> Predicted: {title} ")
+            logger.info(f"# Original: {item.filename} --> Predicted: {title} ")
             if not title:
                 logger.info(
-                    f"x No title generated for: {item['filename']}, skipping update."
+                    f"x No title generated for: {item.filename}, skipping update."
                 )
                 continue
 
@@ -80,19 +82,19 @@ class MyRargbModel:
             hasItem = bf.hasItem(title)
             if hasItem:
                 logger.info(f"x Found existing items: {title} in DB, skipping update.")
-                db.del_item(item["id"])
+                movieRepository.delete(item.id)
                 continue
 
-            db.update_item({"id": item["id"], "title": title})
+            movieRepository.update(Movie(id=item.id, title=title))
 
-    def train(self, items: List[dict]):
+    def train(self, items: List[Movie]):
         data = []
         for item in items:
             data.append(
                 {
-                    "id": item["id"],
-                    "noisy": f"clean the title: {item['filename']}",
-                    "clean": item["title_accurate"],
+                    "id": item.id,
+                    "noisy": f"clean the title: {item.filename}",
+                    "clean": item.title_accurate,
                 }
             )
         dataset = Dataset.from_list(data)

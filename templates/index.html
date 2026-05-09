@@ -14,7 +14,7 @@
 
       .table {
         display: grid;
-        grid-template-columns: 60px 80px 400px 200px 100px 100px 200px;
+        grid-template-columns: 60px 80px 400px 200px 100px 200px;
         border: none;
         border-radius: 6px;
         overflow: hidden;
@@ -169,7 +169,6 @@
             <div>Poster</div>
             <div>Title</div>
             <div>Genre</div>
-            <div>Type</div>
             <div>Score</div>
             <div>Operations</div>
           </div>
@@ -208,9 +207,6 @@
               </button>
             </div>
             <div>{{'' if not item.genre else item.genre}}</div>
-            <div class="text-center">
-              {{'Movie' if item.type == '00' else 'TV series'}}
-            </div>
             <div class="text-center">
               {{'-' if not item.score else item.score}}
             </div>
