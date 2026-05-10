@@ -38,6 +38,7 @@ class RargbCrawler:
                 size=cols[4].text.strip(),
                 added=cols[3].text.strip(),
             )
+            logger.info(f"[v] Found a item: {movie}")
             assert a is not None
             movies.append(movie)
             logger.info(f"[v] Crawled: {movie}\n")

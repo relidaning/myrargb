@@ -1,10 +1,53 @@
-from confluent_kafka import Producer
 import json
+import logging
+from typing import Callable, List
 
-producer = Producer({"bootstrap.servers": "kafka:9092"})
+from confluent_kafka import Consumer, Producer
 
-task = {"site": "imdb", "url": "https://www.imdb.com/title/tt0816692/"}
+logger = logging.getLogger(__name__)
 
-producer.produce("crawl.imdb", json.dumps(task).encode("utf-8"))
 
-producer.flush()
+class ProducerUtil:
+    def __init__(self):
+        self.producer = Producer({"bootstrap.servers": "kafka:9092"})
+
+    def produce(self, topic: str, task: dict):
+        self.producer.produce(topic, json.dumps(task).encode("utf-8"))
+
+    def __del__(self):
+        self.producer.flush()
+
+
+class ConsumerUtil:
+    def spawn(self, group_id: str, topics: List[str], callback: Callable[[str], None]):
+        consumer = Consumer(
+            {
+                "bootstrap.servers": "kafka:9092",
+                "group.id": group_id,
+                "auto.offset.reset": "earliest",  # 没 offset 时从头读
+                "enable.auto.commit": False,  # 生产建议关闭自动提交
+            }
+        )
+        consumer.subscribe(topics)
+        try:
+            while True:
+                msg = consumer.poll(1.0)  # 1秒超时
+                if msg is None:
+                    continue
+                if msg.error():
+                    logger.error(f"Kafka error: {msg.error()}")
+                    continue
+
+                val = msg.value()
+                if val is None:
+                    continue
+                data = val.decode("utf-8")
+                logger.info(f"[v] Consumer in {group_id} received: {data}")
+                callback(data)
+                consumer.commit(msg)
+
+        except KeyboardInterrupt:
+            print("stopping consumer")
+
+        finally:
+            consumer.close()

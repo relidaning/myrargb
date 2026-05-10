@@ -1,10 +1,10 @@
 import logging
-from db import repository
 from db.repository import MovieRepository, CollectedRepository
 from db_model import Movie, Collected
 from workflow import Workflow
 from typing import List
 from crawler import ImdbCrawler, RargbCrawler
+from model.model import model
 
 logger = logging.getLogger(__name__)
 
@@ -62,22 +62,36 @@ class MovieService:
         movies = self.movieRepository.execute_sql(exe_sql)
         return movies
 
-    def crawl_rargb(self, page, keyword) -> bool:
-        crawler = RargbCrawler()
-        items = crawler.crawl({"page": page, "keyword": keyword})
-        if not items or len(items) < 1:
-            return False
+    def crawl_rargb(self, keyword, page) -> bool:
+        try:
+            crawler = RargbCrawler()
+            items = crawler.crawl(
+                {
+                    "keyword": keyword,
+                    "page": page,
+                }
+            )
+            if not items or len(items) < 1:
+                logger.error(f"[x] Found nothing based on {keyword} & {page}")
+                return False
 
-        assert items is not None
-        for item in items:
-            self.movieRepository.insert(item)
+            assert items is not None
+            for item in items:
+                self.movieRepository.insert(item)
+        except Exception as e:
+            logger.error(f"[x] Error on crawling:\n{e}")
 
         return True
 
     def crawl_imdb(self, keyword: str):
         items = self.get_items(workflow=Workflow.SCORING)
-        logger.info(f"✅Found {len(items)} items to update from IMDb.")
+        logger.info(f"[v] Found {len(items)} items to update from IMDb.")
         crawler = ImdbCrawler()
         items = crawler.crawl(keyword, items)
         for item in items:
             self.movieRepository.update(item)
+
+    def predict(self):
+        movies = self.get_items(workflow=Workflow.PREDICT)
+        logger.info(f"[v] Found {len(movies)} items to predict their title.")
+        model.predict(movies)
