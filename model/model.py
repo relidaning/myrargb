@@ -56,36 +56,27 @@ class MyRargbModel:
 
         return inputs
 
-    def predict(self, items: List[Movie]):
+    def predict(self, item: Movie) -> Movie | None:
+        if not item:
+            return None
+
         device = self.model.device
-        for item in items:
-            input = self.tokenizer(
-                f"clean the title: {item.filename}", return_tensors="pt"
-            )
-            input = {k: v.to(device) for k, v in input.items()}
-            output = self.model.generate(
-                **input,
-                max_new_tokens=64,
-                min_new_tokens=4,
-                num_beams=4,
-                early_stopping=True,
-            )
-            title = self.tokenizer.decode(output[0], skip_special_tokens=True)
-            logger.info(f"# Original: {item.filename} --> Predicted: {title} ")
-            if not title:
-                logger.info(
-                    f"x No title generated for: {item.filename}, skipping update."
-                )
-                continue
+        input = self.tokenizer(f"clean the title: {item.filename}", return_tensors="pt")
+        input = {k: v.to(device) for k, v in input.items()}
+        output = self.model.generate(
+            **input,
+            max_new_tokens=64,
+            min_new_tokens=4,
+            num_beams=4,
+            early_stopping=True,
+        )
+        title = self.tokenizer.decode(output[0], skip_special_tokens=True)
+        logger.info(f"# Original: {item.filename} --> Predicted: {title} ")
+        if not title:
+            logger.info(f"x No title generated for: {item.filename}, skipping update.")
+            return None
 
-            bf = BloomUtils()
-            hasItem = bf.hasItem(title)
-            if hasItem:
-                logger.info(f"x Found existing items: {title} in DB, skipping update.")
-                movieRepository.delete(item.id)
-                continue
-
-            movieRepository.update(Movie(id=item.id, title=title))
+        return Movie(id=item.id, title=title)
 
     def train(self, items: List[Movie]):
         data = []

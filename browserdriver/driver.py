@@ -1,21 +1,21 @@
+import os
+import time
+import asyncio
 import logging
+from selenium import webdriver
+from dotenv import load_dotenv
+from abc import ABC, abstractmethod
+import undetected_chromedriver as uc
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
-from dotenv import load_dotenv
 
 load_dotenv()
-
-from abc import ABC, abstractmethod
 
 
 class BrowserDriver(ABC):
     @abstractmethod
     def fetch(self, url: str) -> str: ...
-
-
-from selenium import webdriver
-import time
-import os
 
 
 class SeleniumBrowerDriver(BrowserDriver):
@@ -56,9 +56,6 @@ class SeleniumBrowerDriver(BrowserDriver):
         return html
 
 
-import undetected_chromedriver as uc
-
-
 class UndetectedChromeBrowserDriver(BrowserDriver):
     def __init__(self):
         self.driver = uc.Chrome(version_main=147)
@@ -78,42 +75,10 @@ class UndetectedChromeBrowserDriver(BrowserDriver):
 
 class PlaywrightDriver(BrowserDriver):
     def __init__(self):
-        from playwright.sync_api import sync_playwright
+        pass
 
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--disable-gpu",  # counterintuitively helps in containers
-                "--window-size=1920,1080",
-            ],
-        )
-        self.context = self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080},
-            locale="en-US",
-            timezone_id="America/New_York",
-            permissions=["geolocation"],
-            extra_http_headers={
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-            },
-        )
-        self._inject_stealth_scripts()
-
-    def _inject_stealth_scripts(self):
-        self.context.add_init_script("""
+    def _inject_stealth_scripts(self, context):
+        context.add_init_script("""
             // Remove webdriver flag
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 
@@ -151,24 +116,58 @@ class PlaywrightDriver(BrowserDriver):
         """)
 
     def fetch(self, url: str) -> str:
-        page = self.context.new_page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        from playwright.sync_api import sync_playwright
 
-            # Wait for WAF challenge to resolve — this is the key fix
-            # AWS WAF challenge runs JS and reloads; wait for the real content
-            for _ in range(5):
-                content = page.content()
-                if "challenge-container" in content or "awswaf" in content.lower():
-                    page.wait_for_timeout(3000)  # Let JS challenge execute
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                else:
-                    break
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-accelerated-2d-canvas",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--disable-gpu",  # counterintuitively helps in containers
+                    "--window-size=1920,1080",
+                ],
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080},
+                locale="en-US",
+                timezone_id="America/New_York",
+                permissions=["geolocation"],
+                extra_http_headers={
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                    "sec-ch-ua-mobile": "?0",
+                    "sec-ch-ua-platform": '"Windows"',
+                },
+            )
+            self._inject_stealth_scripts(context)
 
-            html = page.content()
-        finally:
-            page.close()
-        return html
+            page = context.new_page()
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+                # Wait for WAF challenge to resolve — this is the key fix
+                # AWS WAF challenge runs JS and reloads; wait for the real content
+                for _ in range(5):
+                    content = page.content()
+                    if "challenge-container" in content or "awswaf" in content.lower():
+                        page.wait_for_timeout(3000)  # Let JS challenge execute
+                        page.wait_for_load_state("networkidle", timeout=15000)
+                    else:
+                        break
+
+                html = page.content()
+            finally:
+                page.close()
+            return html
 
 
 class DriverFactory:
@@ -180,6 +179,6 @@ class DriverFactory:
 
 if __name__ == "__main__":
     driver = DriverFactory().create_driver()
-    url = f"https://rargb.to/search/1/?search=2026&category[]=movies"
+    url = "https://rargb.to/search/1/?search=2026&category[]=movies"
     result = driver.fetch(url)
     print(result)

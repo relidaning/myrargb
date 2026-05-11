@@ -47,74 +47,68 @@ class RargbCrawler:
 
 
 class ImdbCrawler:
-    def crawl(self, keyword: str, items: List):
-        if not items or len(items) < 1:
-            return []
+    def crawl(self, item: Movie, keyword: str) -> Movie | None:
+        if not item:
+            return None
 
         driver = DriverFactory().create_driver()
-        updated_movies = []
-        for item in items:
-            title = item.title_accurate if item.title_accurate else item.title
-            if not title:
-                logger.error(f"❓item: {item} has no title yet.")
-                continue
+        title = item.title_accurate if item.title_accurate else item.title
+        if not title:
+            logger.info(f"[x] item: {item} has no title yet.")
+            return None
 
-            url = f"https://m.imdb.com/find/?q={title}&ref_=chttvtp_nv_srb_sm"
+        url = f"https://m.imdb.com/find/?q={title}&ref_=chttvtp_nv_srb_sm"
+        try:
+            html = driver.fetch(url)
+            if not html:
+                logger.info("[x] Havn't found html in fetching.")
+                return None
 
-            try:
-                html = driver.fetch(url)
-                if not html:
-                    logger.error("error in fetching.")
-                    continue
+            soup = BeautifulSoup(html, "html.parser")
+            if not soup:
+                logger.info(f"[x] error in parsing:\n{html}")
+                return None
 
-                soup = BeautifulSoup(html, "html.parser")
-                if not soup:
-                    logger.error(f"error in parsing.\n{html}")
-                    continue
+            ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
+            if not ul:
+                logger.info(f"[x] Could not find result table:\n{soup}")
+                return None
 
-                ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
-                if not ul:
-                    logger.error(f"❌ Could not find result table:\n{soup}")
-                    continue
+            lis = ul.find_all("li", {"class": "ipc-metadata-list-summary-item"})
+            if not lis or len(lis) == 0:
+                logger.info(f"[x] Could not find li:{ul}")
+                return None
 
-                lis = ul.find_all("li", {"class": "ipc-metadata-list-summary-item"})
+            for li in lis:
+                li_img = li.find("img", {"class": "ipc-image"})
+                # assert li_img is not None
+                poster = li_img["src"]
+                # assert poster is str
+                li_title = li.find("h3", {"class": "ipc-title__text"})
+                # assert li_title is not None
+                title = li_title.string
+                li_score = li.find("span", {"class": "ipc-rating-star--rating"})
+                # assert li_score is not None
+                score = li_score.string
+                li_year = li.find("li", {"class": "ipc-inline-list__item"})
+                # assert li_year is not None
+                year = li_year.string
+                if year != keyword:
+                    logger.info(f"[x] Wasn't target: {year}, {keyword}")
+                    return None
 
-                if not lis or len(lis) == 0:
-                    logger.error(f"❌ Could not find li:{ul}")
-                    continue
+                return Movie(
+                    id=item.id,
+                    poster=poster,
+                    title=title,
+                    score=score,
+                )
 
-                for li in lis:
-                    li_img = li.find("img", {"class": "ipc-image"})
-                    # assert li_img is not None
-                    poster = li_img["src"]
-                    # assert poster is str
-                    li_title = li.find("h3", {"class": "ipc-title__text"})
-                    # assert li_title is not None
-                    title = li_title.string
-                    li_score = li.find("span", {"class": "ipc-rating-star--rating"})
-                    # assert li_score is not None
-                    score = li_score.string
-                    li_year = li.find("li", {"class": "ipc-inline-list__item"})
-                    # assert li_year is not None
-                    year = li_year.string
-                    if year != keyword:
-                        continue
+        except Exception as e:
+            logger.error(f" Error processing item {item}: {e}")
+            return None
 
-                    updated_movies.append(
-                        Movie(
-                            id=item.id,
-                            poster=poster,
-                            title=title,
-                            score=score,
-                        )
-                    )
-                    break
-
-            except Exception as e:
-                logger.error(f"❌ Error processing item {item}: {e}")
-                continue
-
-        return updated_movies
+        return None
 
 
 if __name__ == "__main__":

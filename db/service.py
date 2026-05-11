@@ -1,10 +1,13 @@
 import logging
+import json
 from db.repository import MovieRepository, CollectedRepository
 from db_model import Movie, Collected
+from utils.kafka_utils import ProducerUtil
 from workflow import Workflow
 from typing import List
 from crawler import ImdbCrawler, RargbCrawler
 from model.model import model
+from utils.bloom_utils import BloomUtils
 
 logger = logging.getLogger(__name__)
 
@@ -76,22 +79,45 @@ class MovieService:
                 return False
 
             assert items is not None
+            util = ProducerUtil()
             for item in items:
                 self.movieRepository.insert(item)
+                util.produce(
+                    "xyz.lidaning.myrargb.topics.predict",
+                    {"keyword": keyword, "page": page, "movie": item.model_dump()},
+                )
         except Exception as e:
             logger.error(f"[x] Error on crawling:\n{e}")
 
         return True
 
-    def crawl_imdb(self, keyword: str):
-        items = self.get_items(workflow=Workflow.SCORING)
-        logger.info(f"[v] Found {len(items)} items to update from IMDb.")
+    def crawl_imdb(self, m: Movie, keyword: str):
         crawler = ImdbCrawler()
-        items = crawler.crawl(keyword, items)
-        for item in items:
-            self.movieRepository.update(item)
+        updated_m = crawler.crawl(m, keyword)
+        if not updated_m:
+            return
+        self.movieRepository.update(updated_m)
 
-    def predict(self):
-        movies = self.get_items(workflow=Workflow.PREDICT)
-        logger.info(f"[v] Found {len(movies)} items to predict their title.")
-        model.predict(movies)
+    def predict(self, movie: Movie, keyword: str, page: str):
+        bf = BloomUtils()
+        util = ProducerUtil()
+        predicted_m = model.predict(movie)
+        if not predicted_m:
+            return
+
+        if not predicted_m.title:
+            return
+
+        hasItem = bf.hasItem(predicted_m.title)
+        if hasItem:
+            logger.info(
+                f"[x] Found existing items: {predicted_m.title} in DB, skipping update."
+            )
+            self.movieRepository.delete(predicted_m.id)
+            return
+
+        self.movieRepository.update(predicted_m)
+        util.produce(
+            "xyz.lidaning.myrargb.topics.crawl_imdb",
+            {"keyword": keyword, "page": page, "movie": predicted_m.model_dump()},
+        )

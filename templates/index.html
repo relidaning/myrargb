@@ -156,8 +156,8 @@
       />
       <input type="text" id="page" placeholder="Page..." value="{{page}}" />
       <button class="hyperlink" onclick="crawlrargb()">Crawl RARGB!</button>
-      <button class="hyperlink" onclick="predict()">LLM Predicting!</button>
-      <button class="hyperlink" onclick="crawlimdb()">Crawl IMDB!</button>
+      <!-- <button class="hyperlink" onclick="predict()">LLM Predicting!</button> -->
+      <!-- <button class="hyperlink" onclick="crawlimdb()">Crawl IMDB!</button> -->
       <button class="hyperlink" style="float: right" onclick="train()">
         Train!
       </button>
@@ -270,7 +270,10 @@
           })
           .then(function (response) {
             // handle success
-            console.log(response.data);
+            console.log(
+              response.data,
+              "The other infos will update automatically later~",
+            );
             hideMask();
             location.reload();
           })

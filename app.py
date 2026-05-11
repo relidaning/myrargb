@@ -10,7 +10,7 @@ from db.service import MovieService
 from db_model import Movie
 from model.model import model
 from utils.bloom_utils import BloomUtils
-from utils.kafka_utils import ProducerUtil, ConsumerUtil
+from utils.kafka_utils import ConsumerUtil
 from workflow import Workflow
 from threading import Thread
 from handler import handle_crawl_rargb, handle_predict, handle_crawl_imdb
@@ -19,9 +19,9 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 logger_level = "DEBUG" if DEBUG else os.getenv("LOGGER_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logger_level,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("app.log", mode="a")],
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s.%(lineno)s: %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("app.log")],
 )
 
 load_dotenv()
@@ -68,29 +68,6 @@ def crawl_from_rargb():
     )
 
 
-@app.route("/predict", methods=["GET"])
-def predict():
-    service.predict()
-    return jsonify(
-        {
-            "status": "success",
-            "message": "Done predicting!",
-        }
-    )
-
-
-@app.route("/crawl_imdb", methods=["GET"])
-def crawl_from_imdb():
-    keyword = request.args.get("keyword", "2025")
-    service.crawl_imdb(keyword)
-    return jsonify(
-        {
-            "status": "success",
-            "message": "crwaling imdb, done!",
-        }
-    )
-
-
 @app.route("/movies/<int:item_id>/abandon", methods=["GET"])
 def abandon_movie(item_id):
     movieRepository.update(Movie(id=item_id, marked="01"))
@@ -125,31 +102,6 @@ def train():
     for item in items:
         movieRepository.update(Movie(id=item.id, trained_flag="1"))
     return jsonify({"status": "success", "message": "Training have been done!"})
-
-
-@app.route("/kafka/crawl_rargb", methods=["GET"])
-def kafka_crawlrargb():
-    keyword = request.args.get("keyword", "2025")
-    page = request.args.get("page", 1, type=int)
-    util = ProducerUtil()
-    util.produce(
-        "xyz.lidaning.myrargb.topics.crawl_rargb", {"keyword": keyword, "page": page}
-    )
-    return jsonify({"status": "success", "message": "[v] Rargb Crwaling task sent."})
-
-
-@app.route("/kafka/predict", methods=["GET"])
-def kafka_predict():
-    util = ProducerUtil()
-    util.produce("xyz.lidaning.myrargb.predict", {})
-    return jsonify({"status": "success", "message": "[v] Predicting task sent."})
-
-
-@app.route("/kafka/crawl_imdb", methods=["GET"])
-def kafka_crawlimdb():
-    util = ProducerUtil()
-    util.produce("xyz.lidaning.myrargb.crawl_imdb", {"keyword": "2026"})
-    return jsonify({"status": "success", "message": "[v] Imdb Crwaling task sent."})
 
 
 def deduplicate():
@@ -190,13 +142,14 @@ if __name__ == "__main__":
         daemon=True,
     ).start()
 
-    Thread(
-        target=util.spawn,
-        kwargs={
-            "group_id": "xyz.lidaning.myrargb.consumers.crawl_imdb",
-            "topics": ["xyz.lidaning.myrargb.topics.crawl_imdb"],
-            "callback": handle_crawl_imdb,
-        },
-        daemon=True,
-    ).start()
+    for i in range(5):
+        Thread(
+            target=util.spawn,
+            kwargs={
+                "group_id": "xyz.lidaning.myrargb.consumers.crawl_imdb",
+                "topics": ["xyz.lidaning.myrargb.topics.crawl_imdb"],
+                "callback": handle_crawl_imdb,
+            },
+            daemon=True,
+        ).start()
     app.run(host="0.0.0.0", port=5000, debug=DEBUG)
