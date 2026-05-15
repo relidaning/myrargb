@@ -21,7 +21,7 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 logger_level = "DEBUG" if DEBUG else os.getenv("LOGGER_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s.%(lineno)s: %(message)s",
+    format="%(asctime)s [%(levelname)s] %(name)s.%(funcName)s:%(lineno)s: %(message)s",
     handlers=[logging.StreamHandler(), logging.FileHandler("app.log")],
 )
 
@@ -208,14 +208,13 @@ if __name__ == "__main__":
         daemon=True,
     ).start()
 
-    for i in range(5):
-        Thread(
-            target=util.spawn,
-            kwargs={
-                "group_id": "xyz.lidaning.myrargb.consumers.crawl_imdb",
-                "topics": ["xyz.lidaning.myrargb.topics.crawl_imdb"],
-                "callback": handle_crawl_imdb,
-            },
-            daemon=True,
-        ).start()
+    Thread(
+        target=util.spawn,
+        kwargs={
+            "group_id": "xyz.lidaning.myrargb.consumers.crawl_imdb",
+            "topics": ["xyz.lidaning.myrargb.topics.crawl_imdb"],
+            "callback": handle_crawl_imdb,
+        },
+        daemon=True,
+    ).start()
     app.run(host="0.0.0.0", port=5000, debug=DEBUG)

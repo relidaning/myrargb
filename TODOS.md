@@ -1,10 +1,16 @@
-# Toso-list
+# Todo-list
 
-This file record the bugs/todos I found during processing and I wanna you do this later.
+This file records bugs/todos found during processing.
 
-- [ ] the movie year should be update before the record insertation instead of inside predicting.
-- [ ] **Handler crash kills consumer silently** — `handler.py` lacked try/except around callbacks. Added try/except in handler.py (2026-05-15), but consumers still get stuck after processing some items. Root cause not fully identified — need deeper investigation of what's killing or stalling the daemon threads.
-- [ ] **Predict consumer stalls after ~150 items** — after restart, predict lag dropped from 2155 to 2002 then froze. Consumer stops receiving/polling messages without logging errors. Same pattern as before the handler fix.
-- [ ] **IMDb consumer stalls at ~2500 lag** — 5 IMDb consumer threads processing but lag not decreasing. Many items fail with `NoneType` errors or 15s timeouts. Error items get committed, but overall throughput appears stuck. Check if all 5 threads are alive.
-- [] The logging, should add the function infos, after file name and before the line number.
-- [] Add year column in the index.html.
+- [x] **Database locked** — added `PRAGMA journal_mode=WAL` + `busy_timeout=5000` to `db/db.py`. (2026-05-15)
+- [x] **Too many open files** — reduced IMDb consumer threads from 5 to 1 in `app.py`. (2026-05-15)
+- [x] **Pagination not working** — added `utils/pager_utils.py`, offset/count support, conditional Next link. (2026-05-15)
+- [x] **Year extraction on insert instead of predict** — moved `extract_year()` to `crawl_rargb()` before insert, removed from `predict()`. (2026-05-15)
+- [x] **Predict consumer stalling** — database lock was the cause, fixed with WAL mode. (2026-05-15)
+- [x] **IMDb consumer stalling** — same lock cause + 5 Playwright instances exhausting FDs. (2026-05-15)
+- [x] **Logging missing function name** — added `%(funcName)s` to format. (2026-05-15)
+- [x] **Year column missing in UI** — added to table header, rows, and CSS grid. (2026-05-15)
+- [ ] **ImdbCrawler gives up on first result mismatch** — `crawler.py:94-98`: `return None` should be `continue` to try next `<li>`.
+- [ ] **Keyword search is dead** — index route reads `keyword` from query string but never filters results.
+- [ ] **No driver cleanup for Selenium variants** — `SeleniumBrowerDriver` / `UndetectedChromeBrowserDriver` rely on `__del__`.
+- [ ] **Heavy work on GET routes** — `/crawl_rargb`, `/predict`, `/crawl_imdb`, `/deduplicate` re-run on refresh/prefetch.

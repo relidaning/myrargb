@@ -8,6 +8,8 @@ class MyRargbDB:
     def __init__(self):
         self.conn = sqlite3.connect("./data/myrargb.db", check_same_thread=False)
         self.cur = self.conn.cursor()
+        self.cur.execute("PRAGMA journal_mode=WAL")
+        self.cur.execute("PRAGMA busy_timeout=5000")
         self.cur.execute("""
             CREATE TABLE IF NOT EXISTS movies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

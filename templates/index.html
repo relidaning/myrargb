@@ -46,6 +46,7 @@
           <!-- Header -->
           <div class="table-header">
             <div>Index</div>
+            <div>Year</div>
             <div>Poster</div>
             <div>Title</div>
             <div>Genre</div>
@@ -56,6 +57,7 @@
           {% for item in items %}
           <div class="table-row">
             <div class="text-center">{{ (page - 1) * 20 + loop.index }}</div>
+            <div class="text-center">{{item.year if item.year else '-'}}</div>
             <div class="text-center">
               {% if not item.poster %}
               <img

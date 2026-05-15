@@ -149,6 +149,10 @@ class MovieService:
                         )
                         continue
 
+                    year = extract_year(item.filename)
+                    if year:
+                        item.year = year
+
                     try:
                         self.movieRepository.insert(item)
                     except sqlite3.IntegrityError:
@@ -238,10 +242,6 @@ class MovieService:
             )
             self.movieRepository.delete(predicted_m.id)
             return
-
-        year = extract_year(movie.filename)
-        if year:
-            predicted_m.year = year
 
         self.movieRepository.update(predicted_m)
         util.produce(
