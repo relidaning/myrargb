@@ -37,9 +37,8 @@ movieRepository = MovieRepository()
 
 @app.route("/", methods=["GET"])
 def index():
-    from utils.pager_utils import page_offset, has_next_page, PER_PAGE
+    from utils.pager_utils import page_offset, has_next_page, total_pages, page_range, PER_PAGE
 
-    keyword = request.args.get("keyword", "")
     page = request.args.get("page", 1, type=int)
     order_by = "score DESC, marked asc"
 
@@ -48,31 +47,29 @@ def index():
         workflow=Workflow.NONE, limit=PER_PAGE, offset=offset, order_by=order_by
     )
     total = service.count_items(workflow=Workflow.NONE)
+    pages = page_range(page, total_pages(total))
 
-    finetunable = True
     movies_to_train = service.get_items(
         workflow=Workflow.TRAINING, limit=100, order_by="id DESC"
     )
-    count = len(movies_to_train)
-    if count <= 1:
-        finetunable = False
+    trainable_count = len(movies_to_train)
+    finetunable = trainable_count >= 20
 
     return render_template(
         "index.html",
         items=movies,
-        keyword=keyword,
         page=page,
         has_next=has_next_page(total, page),
+        total_pages=total_pages(total),
+        pages=pages,
         finetunable=finetunable,
     )
 
 
 @app.route("/crawl_rargb", methods=["GET"])
 def crawl_from_rargb():
-    keyword = request.args.get("keyword", "")
-    page = request.args.get("page", 1, type=int)
     incremental = request.args.get("incremental", "false").lower() == "true"
-    service.crawl_rargb(keyword, page, incremental=incremental)
+    service.crawl_rargb(incremental=incremental)
     return jsonify(
         {
             "status": "success",

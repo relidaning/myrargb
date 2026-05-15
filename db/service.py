@@ -98,7 +98,7 @@ class MovieService:
 
         return self.movieRepository.count(where)
 
-    def crawl_rargb(self, keyword="", page=None, incremental=True) -> bool:
+    def crawl_rargb(self, incremental=True) -> bool:
         """Crawl rargb.to/movies/ for movie torrents.
 
         In incremental mode, uses the ``collected`` table's date range to skip

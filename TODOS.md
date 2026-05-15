@@ -11,6 +11,9 @@ This file records bugs/todos found during processing.
 - [x] **Logging missing function name** — added `%(funcName)s` to format. (2026-05-15)
 - [x] **Year column missing in UI** — added to table header, rows, and CSS grid. (2026-05-15)
 - [ ] **ImdbCrawler gives up on first result mismatch** — `crawler.py:94-98`: `return None` should be `continue` to try next `<li>`.
-- [ ] **Keyword search is dead** — index route reads `keyword` from query string but never filters results.
+- [x] **Keyword search is dead** — removed `keyword` from routes, service, template, JS, and address bar. (2026-05-15)
+- [x] **Dead page input** — removed manual rargb page input; incremental crawl always starts from page 1. (2026-05-15)
+- [x] **Train button always visible** — now hidden until 20+ title_accurate samples are ready. (2026-05-15)
+- [x] **Pagination missing total pages** — added page number shortcuts and "Page X / Y" display. (2026-05-15)
 - [ ] **No driver cleanup for Selenium variants** — `SeleniumBrowerDriver` / `UndetectedChromeBrowserDriver` rely on `__del__`.
 - [ ] **Heavy work on GET routes** — `/crawl_rargb`, `/predict`, `/crawl_imdb`, `/deduplicate` re-run on refresh/prefetch.

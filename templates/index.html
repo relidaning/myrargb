@@ -28,19 +28,14 @@
     <div id="notification" class="hidden">Done!</div>
     <div class="content">
       <h2>MyRargb Helper</h2>
-      <input
-        type="text"
-        id="keyword"
-        placeholder="Year or keyword (optional)"
-        value="{{keyword}}"
-      />
-      <input type="text" id="page" placeholder="Page..." value="{{page}}" />
       <button class="hyperlink" onclick="crawlrargb()">Crawl RARGB!</button>
       <!-- <button class="hyperlink" onclick="predict()">LLM Predicting!</button> -->
       <!-- <button class="hyperlink" onclick="crawlimdb()">Crawl IMDB!</button> -->
+      {% if finetunable %}
       <button class="hyperlink" style="float: right" onclick="train()">
         Train!
       </button>
+      {% endif %}
       <div class="table-container">
         <div class="table">
           <!-- Header -->
@@ -109,16 +104,24 @@
 
         <div class="pagination">
           {% if page > 1 %}
-          <a class="page-btn" href="/?keyword={{keyword}}&page={{page - 1}}">
-            ← Prev
-          </a>
+          <a class="page-btn" href="/?page={{page - 1}}">← Prev</a>
           {% endif %}
-          <span class="current-page"> Page {{page}} </span>
+
+          {% for p in pages %}
+            {% if p is none %}
+            <span class="page-gap">…</span>
+            {% elif p == page %}
+            <span class="page-btn current">{{p}}</span>
+            {% else %}
+            <a class="page-btn" href="/?page={{p}}">{{p}}</a>
+            {% endif %}
+          {% endfor %}
+
           {% if has_next %}
-          <a class="page-btn" href="/?keyword={{keyword}}&page={{page + 1}}">
-            Next →
-          </a>
+          <a class="page-btn" href="/?page={{page + 1}}">Next →</a>
           {% endif %}
+
+          <span class="current-page">Page {{page}} / {{total_pages}}</span>
         </div>
       </div>
     </div>
@@ -154,12 +157,10 @@
       }
 
       function crawlrargb() {
-        const keyword = document.getElementById("keyword").value;
         showMask();
         axios
           .get("/crawl_rargb", {
             params: {
-              keyword: keyword,
               incremental: true,
             },
           })
@@ -195,16 +196,9 @@
       }
 
       function crawlimdb() {
-        const keyword = document.getElementById("keyword").value;
-        const page = document.getElementById("page").value;
         showMask();
         axios
-          .get("/crawl_imdb", {
-            params: {
-              keyword: keyword,
-              page: page,
-            },
-          })
+          .get("/crawl_imdb")
           .then(function (response) {
             // handle success
             console.log(response.data);
