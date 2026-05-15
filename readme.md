@@ -2,21 +2,37 @@
 
 ![image](./myrargb.png)
 
-[Rargb](https://rargb.to/) is a resources shared website, I often download TV shows and movies there.
+[Rargb](https://rargb.to/) is a resource sharing site. I often download movies and TV shows there, but the site has no posters, no ratings, and many duplicate entries across resolutions/sources.
 
-Unexpectedly there are too many duplicated entries and no pictures showed up, make me feel less intuitive.
+MyRargb fixes that:
 
-So I built this app with the help of ChatGPT.
+1. **Crawl** — browses the rargb.to `/movies/` catalog via Playwright
+2. **Extract** — uses a fine-tuned [T5-small](https://huggingface.co/google-t5/t5-small) model to extract clean movie titles from noisy filenames (e.g., `The.Matrix.1999.1080p.BluRay.x264-YTS` → `The Matrix`)
+3. **Deduplicate** — Bloom filter catches duplicate movies across different resolutions/sources
+4. **Enrich** — fetches poster, score, and genre from IMDb
+5. **Browse** — clean web UI with poster images, scores, and mark-as-watched/abandoned
 
-Here is how it works:
-- Crawl movies/tv shows from rargb
-- use the llm [t5-small](https://huggingface.co/google-t5/t5-small)(which is used for sequence-to-sequence/text-to-text language model built by google) to extract the title
-- fetch the score for it from imdb
-
-## Usages
+## Usage
 
 ```bash
-cd myrargb
+# Install dependencies
 uv sync
-python app.py
+
+# Run the app (Kafka + browser not required for UI-only use)
+uv run python app.py
+
+# Full stack with Kafka for async pipeline
+docker compose up --build
 ```
+
+Open `http://localhost:5000`. Click **Crawl RARGB!** to start an incremental crawl.
+
+## Environment
+
+Copy `.env.example` to `.env` and adjust:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CHROME_URL` | `http://localhost:4444/wd/hub` | Selenium remote driver (unused; Playwright is default) |
+| `DEBUG` | `false` | Flask debug mode |
+| `LOGGER_LEVEL` | `INFO` | Log level |

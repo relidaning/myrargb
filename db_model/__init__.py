@@ -28,9 +28,16 @@ class Movie(DbModel):
     title_accurate: str | None = None
     trained_flag: str | None = None
     added: str | None = None
+    year: str | None = None
 
 
 @table("collected")
 class Collected(DbModel):
     start: str | None = None
     end: str | None = None
+
+
+@table("config")
+class Config(DbModel):
+    key: str | None = None
+    value: str | None = None

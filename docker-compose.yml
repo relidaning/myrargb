@@ -1,21 +1,21 @@
 services:
-  myrargb:
-    build:
-      context: .
-      dockerfile: ./docker/Dockerfile
-    ports:
-      - "5000:5000"
-    environment:
-      - FLASK_ENV=production
-      - CHROME_URL=http://browser:4444
-      - LOGGER_LEVEL=ERROR
-      - HTTP_PROXY=http://172.17.0.1:10808
-      - HTTPS_PROXY=http://172.17.0.1:10808
-      - NVIDIA_VISIBLE_DEVICES=all
-    volumes:
-      - ./data:/app/data
-    runtime: nvidia
-
+  # myrargb:
+  #   build:
+  #     context: .
+  #     dockerfile: ./docker/Dockerfile
+  #   ports:
+  #     - "5000:5000"
+  #   environment:
+  #     - FLASK_ENV=production
+  #     - CHROME_URL=http://browser:4444
+  #     - LOGGER_LEVEL=ERROR
+  #     - HTTP_PROXY=http://172.17.0.1:10808
+  #     - HTTPS_PROXY=http://172.17.0.1:10808
+  #     - NVIDIA_VISIBLE_DEVICES=all
+  #   volumes:
+  #     - ./data:/app/data
+  #   runtime: nvidia
+  #
   # browser:
   #   image: selenium/standalone-chrome:latest
   #   ports:
@@ -26,7 +26,6 @@ services:
   kafka:
     image: apache/kafka:4.3.0-rc1
     hostname: kafka
-    container_name: kafka
     ports:
       - "9092:9092"
       - "9093:9093"

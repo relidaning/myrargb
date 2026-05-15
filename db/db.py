@@ -29,6 +29,22 @@ class MyRargbDB:
         self.cur.execute(
             " create table if not exists collected (start text, end text) "
         )
+        self.cur.execute(
+            """ create table if not exists config (
+                id integer primary key autoincrement,
+                key text unique,
+                value text
+            ) """
+        )
+        try:
+            self.cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_url ON movies(url)"
+            )
+        except sqlite3.IntegrityError:
+            logger.warning(
+                "Could not create unique index on movies(url) — "
+                "duplicate URLs exist. Run deduplication to clean them."
+            )
         self._migrate()
         self.conn.commit()
 
@@ -41,6 +57,7 @@ class MyRargbDB:
             "title_accurate": "ALTER TABLE movies ADD COLUMN title_accurate TEXT",
             "trained_flag": "ALTER TABLE movies ADD COLUMN trained_flag TEXT DEFAULT '0'",
             "marked": "ALTER TABLE movies ADD COLUMN marked TEXT DEFAULT '00'",
+            "year": "ALTER TABLE movies ADD COLUMN year TEXT",
         }
         for col, sql in migrations.items():
             if col not in existing:

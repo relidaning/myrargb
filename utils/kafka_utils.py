@@ -2,14 +2,27 @@ import json
 import logging
 from typing import Callable, List
 
-from confluent_kafka import Consumer, Producer
+from confluent_kafka import Consumer, Producer, KafkaException
 
 logger = logging.getLogger(__name__)
 
 
 class ProducerUtil:
+    _available_cache: bool | None = None
+
     def __init__(self):
         self.producer = Producer({"bootstrap.servers": "kafka:9092"})
+
+    def available(self) -> bool:
+        if ProducerUtil._available_cache is None:
+            try:
+                self.producer.list_topics(timeout=3)
+                ProducerUtil._available_cache = True
+                logger.info("[v] Kafka broker reachable.")
+            except KafkaException:
+                ProducerUtil._available_cache = False
+                logger.warning("[!] Kafka broker unreachable, processing inline.")
+        return ProducerUtil._available_cache
 
     def produce(self, topic: str, task: dict):
         self.producer.produce(topic, json.dumps(task).encode("utf-8"))

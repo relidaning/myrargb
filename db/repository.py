@@ -1,5 +1,5 @@
 from typing import Generic, TypeVar, List, ClassVar, get_args
-from db_model import Collected, Movie, DbModel
+from db_model import Collected, Config, Movie, DbModel
 from db.db import db
 import logging
 
@@ -71,9 +71,9 @@ class BaseRepository(Generic[T]):
         db.conn.commit()
         return True
 
-    def execute_sql(self, sql: str) -> List[T]:
-        db.cur.execute(sql)
-        logger.info(f"[v] Executing query: {sql}")
+    def execute_sql(self, sql: str, params: tuple = ()) -> List[T]:
+        db.cur.execute(sql, params)
+        logger.info(f"[v] Executing: {sql} | params={params}")
         rows = db.cur.fetchall()
         if rows and len(rows) > 0:
             columns = [col[0] for col in db.cur.description]
@@ -81,11 +81,28 @@ class BaseRepository(Generic[T]):
         else:
             return []
 
+    def count(self, where_clause: str = "", params: tuple = ()) -> int:
+        sql = f"SELECT COUNT(*) FROM {self.table_name}"
+        if where_clause:
+            sql += f" WHERE {where_clause}"
+        db.cur.execute(sql, params)
+        row = db.cur.fetchone()
+        return row[0] if row else 0
+
 
 class CollectedRepository(BaseRepository[Collected]): ...
 
 
-class MovieRepository(BaseRepository[Movie]): ...
+class ConfigRepository(BaseRepository[Config]): ...
+
+
+class MovieRepository(BaseRepository[Movie]):
+    def exists_by_url(self, url: str) -> bool:
+        if not url:
+            return False
+        sql = "SELECT 1 FROM movies WHERE url = ? LIMIT 1"
+        db.cur.execute(sql, (url,))
+        return db.cur.fetchone() is not None
 
 
 if __name__ == "__main__":

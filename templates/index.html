@@ -4,132 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MyRargb Helper</title>
-
-    <style>
-      .content {
-        max-width: 1200px;   /* 控制内容宽度 */
-        margin: 0 auto;      /* 关键：水平居中 */
-        padding: 16px;
-      }
-
-      .table {
-        display: grid;
-        grid-template-columns: 60px 80px 400px 200px 100px 200px;
-        border: none;
-        border-radius: 6px;
-        overflow: hidden;
-        font-family: Arial, sans-serif;
-      }
-
-      .table-header, .table-row {
-        display: contents; /* allow grid layout */
-      }
-
-      .table div {
-        padding: 10px;
-        border-bottom: 1px solid #ddd;
-        border-right: 1px solid #eee;
-        overflow: hidden;
-        <!-- white-space: nowrap; -->
-        text-overflow: ellipsis;
-      }
-
-      .table div:last-child {
-        border-right: none;
-      }
-
-      .table-header div {
-        font-weight: bold;
-        background: #f0f0f0;
-        border-bottom: 2px solid #ccc;
-      }
-
-      .table-row:hover div {
-        background: #fafafa;
-      }
-
-      /* Make table scroll horizontally on mobile */
-      .table-container {
-        overflow-x: auto;
-      }
-
-      .text-center {
-        text-align: center;
-      }
-
-      #mask {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.45);
-        backdrop-filter: blur(3px);
-        display: none;             /* hidden by default */
-        justify-content: center;
-        align-items: center;
-        flex-direction: column;
-        z-index: 9999;
-      }
-
-      .loader {
-        width: 48px;
-        height: 48px;
-        border: 5px solid #fff;
-        border-top-color: transparent;
-        border-radius: 50%;
-        animation: spin 0.7s linear infinite;
-      }
-
-      .msg {
-        margin-top: 12px;
-        color: #fff;
-        font-size: 16px;
-      }
-
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-
-      .hyperlink {
-        background: none;
-        border: none;
-        color: blue;
-        text-decoration: underline;
-        cursor: pointer;
-        padding: 0;
-        font-size: inherit;
-        font-family: inherit;
-      }
-
-      dialog {
-          padding: 20px;
-          border-radius: 8px;
-          border: none;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        dialog::backdrop {
-          background: rgba(0, 0, 0, 0.4);
-        }
-
-        .actions {
-          margin-top: 12px;
-          text-align: right;
-        }
-      #notification {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: #333;
-        color: white;
-        padding: 15px 25px;
-        border-radius: 5px;
-        transition: opacity 0.5s;
-      }
-      .hidden { opacity: 0; pointer-events: none; }
-    </style>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="{{ url_for('static', filename='css/style.css')}} "
+    />
   </head>
   <body>
     <dialog id="textDialog">
@@ -151,7 +31,7 @@
       <input
         type="text"
         id="keyword"
-        placeholder="Search..."
+        placeholder="Year or keyword (optional)"
         value="{{keyword}}"
       />
       <input type="text" id="page" placeholder="Page..." value="{{page}}" />
@@ -175,7 +55,7 @@
 
           {% for item in items %}
           <div class="table-row">
-            <div class="text-center">{{ loop.index }}</div>
+            <div class="text-center">{{ (page - 1) * 20 + loop.index }}</div>
             <div class="text-center">
               {% if not item.poster %}
               <img
@@ -224,6 +104,20 @@
           </div>
           {% endfor %}
         </div>
+
+        <div class="pagination">
+          {% if page > 1 %}
+          <a class="page-btn" href="/?keyword={{keyword}}&page={{page - 1}}">
+            ← Prev
+          </a>
+          {% endif %}
+          <span class="current-page"> Page {{page}} </span>
+          {% if has_next %}
+          <a class="page-btn" href="/?keyword={{keyword}}&page={{page + 1}}">
+            Next →
+          </a>
+          {% endif %}
+        </div>
       </div>
     </div>
     <div id="mask">
@@ -259,13 +153,12 @@
 
       function crawlrargb() {
         const keyword = document.getElementById("keyword").value;
-        const page = document.getElementById("page").value;
         showMask();
         axios
           .get("/crawl_rargb", {
             params: {
               keyword: keyword,
-              page: page,
+              incremental: true,
             },
           })
           .then(function (response) {

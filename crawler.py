@@ -10,7 +10,11 @@ logger = logging.getLogger(__name__)
 
 class RargbCrawler:
     def crawl(self, param: dict) -> List:
-        url = f"https://rargb.to/search/{param['page']}/?search={param['keyword']}&category[]=movies"
+        page = param["page"]
+        if page == 1:
+            url = "https://rargb.to/movies/"
+        else:
+            url = f"https://rargb.to/movies/{page}/"
 
         driver = DriverFactory().create_driver()
         html = driver.fetch(url)
@@ -41,13 +45,12 @@ class RargbCrawler:
             logger.info(f"[v] Found a item: {movie}")
             assert a is not None
             movies.append(movie)
-            logger.info(f"[v] Crawled: {movie}\n")
 
         return movies
 
 
 class ImdbCrawler:
-    def crawl(self, item: Movie, keyword: str) -> Movie | None:
+    def crawl(self, item: Movie) -> Movie | None:
         if not item:
             return None
 
@@ -81,20 +84,15 @@ class ImdbCrawler:
 
             for li in lis:
                 li_img = li.find("img", {"class": "ipc-image"})
-                # assert li_img is not None
                 poster = li_img["src"]
-                # assert poster is str
                 li_title = li.find("h3", {"class": "ipc-title__text"})
-                # assert li_title is not None
                 title = li_title.string
                 li_score = li.find("span", {"class": "ipc-rating-star--rating"})
-                # assert li_score is not None
                 score = li_score.string
                 li_year = li.find("li", {"class": "ipc-inline-list__item"})
-                # assert li_year is not None
                 year = li_year.string
-                if year != keyword:
-                    logger.info(f"[x] Wasn't target: {year}, {keyword}")
+                if item.year and year != item.year:
+                    logger.info(f"[x] Year mismatch: IMDb={year}, expected={item.year}")
                     return None
 
                 return Movie(

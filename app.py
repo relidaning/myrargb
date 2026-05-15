@@ -14,6 +14,7 @@ from utils.kafka_utils import ConsumerUtil
 from workflow import Workflow
 from threading import Thread
 from handler import handle_crawl_rargb, handle_predict, handle_crawl_imdb
+import time
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
@@ -36,11 +37,17 @@ movieRepository = MovieRepository()
 
 @app.route("/", methods=["GET"])
 def index():
-    keyword = "2026"
-    page = 1
+    from utils.pager_utils import page_offset, has_next_page, PER_PAGE
+
+    keyword = request.args.get("keyword", "")
+    page = request.args.get("page", 1, type=int)
+    order_by = "score DESC, marked asc"
+
+    offset = page_offset(page)
     movies = service.get_items(
-        workflow=Workflow.NONE, limit=100, order_by="score DESC, marked asc"
+        workflow=Workflow.NONE, limit=PER_PAGE, offset=offset, order_by=order_by
     )
+    total = service.count_items(workflow=Workflow.NONE)
 
     finetunable = True
     movies_to_train = service.get_items(
@@ -51,19 +58,25 @@ def index():
         finetunable = False
 
     return render_template(
-        "index.html", items=movies, keyword=keyword, page=page, finetunable=finetunable
+        "index.html",
+        items=movies,
+        keyword=keyword,
+        page=page,
+        has_next=has_next_page(total, page),
+        finetunable=finetunable,
     )
 
 
 @app.route("/crawl_rargb", methods=["GET"])
 def crawl_from_rargb():
-    keyword = request.args.get("keyword", "2025")
+    keyword = request.args.get("keyword", "")
     page = request.args.get("page", 1, type=int)
-    service.crawl_rargb(keyword, page)
+    incremental = request.args.get("incremental", "false").lower() == "true"
+    service.crawl_rargb(keyword, page, incremental=incremental)
     return jsonify(
         {
             "status": "success",
-            "message": f"Crawling more items with keyword: {keyword}, and it's done!",
+            "message": "Crawling completed.",
         }
     )
 
@@ -104,20 +117,73 @@ def train():
     return jsonify({"status": "success", "message": "Training have been done!"})
 
 
+@app.route("/predict", methods=["GET"])
+def predict_all():
+    items = service.get_items(Workflow.PREDICT)
+    total = len(items)
+    for i, item in enumerate(items):
+        service.predict(item)
+        if i % 10 == 0:
+            logger.info(f"[v] Predict progress: {i + 1}/{total}")
+            time.sleep(1)  # brief pause to avoid hammering the model
+    return jsonify(
+        {"status": "success", "message": f"Predicted {total} items."}
+    )
+
+
+@app.route("/crawl_imdb", methods=["GET"])
+def crawl_imdb_all():
+    items = service.get_items(Workflow.SCORING)
+    total = len(items)
+    for i, item in enumerate(items):
+        service.crawl_imdb(item)
+        if i % 5 == 0:
+            logger.info(f"[v] IMDb progress: {i + 1}/{total}")
+            time.sleep(2)  # rate-limit IMDb requests
+    return jsonify(
+        {"status": "success", "message": f"IMDb crawl attempted for {total} items."}
+    )
+
+
+@app.route("/produce/predict", methods=["GET"])
+def produce_predict_backlog():
+    count = service.produce_predict_backlog()
+    if count < 0:
+        return jsonify({"status": "error", "message": "Kafka is unreachable."}), 503
+    return jsonify(
+        {"status": "success", "message": f"Produced predict tasks for {count} items."}
+    )
+
+
+@app.route("/produce/imdb", methods=["GET"])
+def produce_imdb_backlog():
+    count = service.produce_imdb_backlog()
+    if count < 0:
+        return jsonify({"status": "error", "message": "Kafka is unreachable."}), 503
+    return jsonify(
+        {"status": "success", "message": f"Produced IMDb tasks for {count} items."}
+    )
+
+
+@app.route("/deduplicate", methods=["GET"])
 def deduplicate():
     bf = BloomUtils()
     items = service.get_items(workflow=Workflow.DEDUPLICATION)
+    count = 0
     for item in items:
-        title = item.title  # title is the 4th column
+        title = item.title
         if not title:
             continue
         if bf.hasItem(title):
-            movieRepository.delete(item.id)  # item_id is the 1st column
+            movieRepository.delete(item.id)
             logger.info(f"Duplicate item found and removed: {title}")
+            count += 1
         else:
             bf.add(title)
             logger.info(f"Item added to Bloom filter: {title}")
-    return jsonify({"status": "success", "message": "Deduplication completed."})
+    return jsonify(
+        {"status": "success", "message": f"Deduplication completed, {count} removed."}
+    )
 
 
 if __name__ == "__main__":
