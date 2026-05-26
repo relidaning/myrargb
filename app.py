@@ -9,7 +9,7 @@ from db.repository import MovieRepository
 from db.service import MovieService
 from db_model import Movie
 from model.model import model
-from utils.bloom_utils import BloomUtils
+from db.service import _bloom
 from utils.kafka_utils import ConsumerUtil
 from workflow import Workflow
 from threading import Thread
@@ -63,6 +63,7 @@ def index():
         total_pages=total_pages(total),
         pages=pages,
         finetunable=finetunable,
+        trainable_count=trainable_count,
     )
 
 
@@ -164,20 +165,18 @@ def produce_imdb_backlog():
 
 @app.route("/deduplicate", methods=["GET"])
 def deduplicate():
-    bf = BloomUtils()
     items = service.get_items(workflow=Workflow.DEDUPLICATION)
     count = 0
     for item in items:
         title = item.title
         if not title:
             continue
-        if bf.hasItem(title):
+        if _bloom.hasItem(title):
             movieRepository.delete(item.id)
-            logger.info(f"Duplicate item found and removed: {title}")
+            logger.info(f"Duplicate removed: {title}")
             count += 1
         else:
-            bf.add(title)
-            logger.info(f"Item added to Bloom filter: {title}")
+            _bloom.add(title)
     return jsonify(
         {"status": "success", "message": f"Deduplication completed, {count} removed."}
     )

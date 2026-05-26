@@ -1,271 +1,214 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MyRargb Helper</title>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <link
-      rel="stylesheet"
-      type="text/css"
-      href="{{ url_for('static', filename='css/style.css')}} "
-    />
-  </head>
-  <body>
-    <dialog id="textDialog">
-      <form method="dialog">
-        <label>
-          Acurate Title：
-          <input type="text" id="title_accurate" />
-        </label>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyRargb</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
 
-        <div class="actions">
-          <button value="cancel">Cancel</button>
-          <button id="confirmBtn" value="confirm">Confirm</button>
-        </div>
-      </form>
-    </dialog>
-    <div id="notification" class="hidden">Done!</div>
-    <div class="content">
-      <h2>MyRargb Helper</h2>
-      <button class="hyperlink" onclick="crawlrargb()">Crawl RARGB!</button>
-      <!-- <button class="hyperlink" onclick="predict()">LLM Predicting!</button> -->
-      <!-- <button class="hyperlink" onclick="crawlimdb()">Crawl IMDB!</button> -->
-      {% if finetunable %}
-      <button class="hyperlink" style="float: right" onclick="train()">
-        Train!
-      </button>
-      {% endif %}
-      <div class="table-container">
-        <div class="table">
-          <!-- Header -->
-          <div class="table-header">
-            <div>Index</div>
-            <div>Year</div>
-            <div>Poster</div>
-            <div>Title</div>
-            <div>Genre</div>
-            <div>Score</div>
-            <div>Operations</div>
-          </div>
+<nav class="navbar">
+  <span class="navbar-brand">MyRargb</span>
+  <div class="navbar-actions">
+    <button class="btn btn-primary" onclick="crawlrargb()">&#8595; Crawl</button>
+    {% if finetunable %}
+    <button class="btn btn-purple" onclick="train()">
+      &#9889; Train <span class="badge">{{ trainable_count }}</span>
+    </button>
+    {% endif %}
+  </div>
+</nav>
 
-          {% for item in items %}
-          <div class="table-row">
-            <div class="text-center">{{ (page - 1) * 20 + loop.index }}</div>
-            <div class="text-center">{{item.year if item.year else '-'}}</div>
-            <div class="text-center">
-              {% if not item.poster %}
+<main class="main">
+  <div class="table-wrapper">
+    <table class="movie-table">
+      <thead>
+        <tr>
+          <th class="tc" style="width:44px">#</th>
+          <th style="width:60px">Poster</th>
+          <th>Title</th>
+          <th class="tc" style="width:58px">Year</th>
+          <th style="width:110px">Genre</th>
+          <th class="tc" style="width:76px">Score</th>
+          <th style="width:140px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr class="movie-row{% if item.marked == '01' %} row-abandoned{% elif item.marked == '02' %} row-watched{% endif %}">
+
+          <td class="tc muted">{{ (page - 1) * 20 + loop.index }}</td>
+
+          <td>
+            <a href="{{ item.url }}" target="_blank" class="poster-link">
               <img
-                src="{{ url_for('static', filename='images/default.jpg') }}"
-                alt="No Poster"
-                style="width: 50px; height: auto"
+                src="{{ item.poster if item.poster else url_for('static', filename='images/default.jpg') }}"
+                alt="poster"
+                class="poster-img"
               />
+            </a>
+          </td>
+
+          <td>
+            <a href="{{ item.url }}" target="_blank" class="title-link">
+              {% if item.title_accurate %}
+                <span class="title title-ok">{{ item.title_accurate }}</span>
+              {% elif item.title %}
+                <span class="title title-predicted">{{ item.title }}</span>
               {% else %}
-              <img
-                src="{{item.poster}}"
-                alt="Poster"
-                style="width: 50px; height: auto"
-              />
+                <span class="title title-missing">Untitled</span>
               {% endif %}
-            </div>
-            <div>
-              <a href="{{item.url}}" target="_blank">
-                {% if not item.title_accurate %}
-                <font color="red">{{item.title}}</font>
-                {% else%}
-                <font color="green">{{item.title_accurate}}</font>
-                {% endif %}
-              </a>
-              <p style="color: gray; font-size: 12px; word-wrap: break-word">
-                {{item.filename}}
-              </p>
-              <button class="hyperlink" onclick="openDialog('{{item.id}}')">
-                Correct
-              </button>
-            </div>
-            <div>{{'' if not item.genre else item.genre}}</div>
-            <div class="text-center">
-              {{'-' if not item.score else item.score}}
-            </div>
-            <div>
-              {% if item.marked == '00' %}
-              <button class="hyperlink" onclick="abandonItem('{{item.id}}')">
-                Abandon
-              </button>
-              <button class="hyperlink" onclick="watchedItem('{{item.id}}')">
-                Watched
-              </button>
-              {% else %} {{'Abandoned' if item.marked == '01' else 'Watched' }}
-              {% endif %}
-            </div>
-          </div>
-          {% endfor %}
-        </div>
+            </a>
+            <span class="filename">{{ item.filename }}</span>
+          </td>
 
-        <div class="pagination">
-          {% if page > 1 %}
-          <a class="page-btn" href="/?page={{page - 1}}">← Prev</a>
-          {% endif %}
+          <td class="tc muted">{{ item.year or '—' }}</td>
 
-          {% for p in pages %}
-            {% if p is none %}
-            <span class="page-gap">…</span>
-            {% elif p == page %}
-            <span class="page-btn current">{{p}}</span>
+          <td class="muted">{{ item.genre or '—' }}</td>
+
+          <td class="tc">
+            {% if item.score and item.score != 'unmatched' %}
+              {% set s = item.score | float %}
+              <span class="score-badge {% if s >= 7 %}score-high{% elif s >= 5 %}score-mid{% else %}score-low{% endif %}">
+                &#9733; {{ item.score }}
+              </span>
+            {% elif item.score == 'unmatched' %}
+              <span class="score-badge score-none">&#8212;</span>
             {% else %}
-            <a class="page-btn" href="/?page={{p}}">{{p}}</a>
+              <span class="score-badge score-pending">?</span>
             {% endif %}
-          {% endfor %}
+          </td>
 
-          {% if has_next %}
-          <a class="page-btn" href="/?page={{page + 1}}">Next →</a>
-          {% endif %}
+          <td>
+            {% if item.marked == '01' %}
+              <span class="status-tag tag-abandoned">Abandoned</span>
+            {% elif item.marked == '02' %}
+              <span class="status-tag tag-watched">Watched</span>
+            {% else %}
+              <button class="action-btn btn-edit"  onclick="openDialog('{{ item.id }}')">Edit</button>
+              <button class="action-btn btn-watch" onclick="watchedItem('{{ item.id }}')">Watch</button>
+              <button class="action-btn btn-drop"  onclick="abandonItem('{{ item.id }}')">Drop</button>
+            {% endif %}
+          </td>
 
-          <span class="current-page">Page {{page}} / {{total_pages}}</span>
-        </div>
-      </div>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination">
+    {% if page > 1 %}
+      <a class="page-btn" href="/?page={{ page - 1 }}">&larr;</a>
+    {% endif %}
+
+    {% for p in pages %}
+      {% if p is none %}
+        <span class="page-gap">&hellip;</span>
+      {% elif p == page %}
+        <span class="page-btn page-current">{{ p }}</span>
+      {% else %}
+        <a class="page-btn" href="/?page={{ p }}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+
+    {% if has_next %}
+      <a class="page-btn" href="/?page={{ page + 1 }}">&rarr;</a>
+    {% endif %}
+
+    <span class="page-info">{{ page }} / {{ total_pages }}</span>
+  </div>
+</main>
+
+<dialog id="titleDialog">
+  <form method="dialog" class="dialog-form">
+    <p class="dialog-title">Correct Title</p>
+    <input
+      type="text"
+      id="title_accurate"
+      class="dialog-input"
+      placeholder="Accurate movie title…"
+      autocomplete="off"
+    />
+    <div class="dialog-actions">
+      <button class="btn-ghost" value="cancel">Cancel</button>
+      <button class="btn btn-primary" id="confirmBtn" value="confirm">Save</button>
     </div>
-    <div id="mask">
-      <div class="loader"></div>
-      <div class="msg">Processing…</div>
-    </div>
-    <script>
-      const dialog = document.getElementById("textDialog");
-      const title_accurate = document.getElementById("title_accurate");
-      let correct_id = null;
+  </form>
+</dialog>
 
-      dialog.addEventListener("close", () => {
-        if (dialog.returnValue === "confirm") {
-          axios
-            .put(`/movies/${correct_id}/correct`, {
-              title_accurate: title_accurate.value,
-            })
-            .then(async function (response) {
-              await showToast(response.data.message);
-              location.reload();
-            })
-            .catch(function (error) {
-              console.error(error);
-            });
-        }
-      });
+<div id="mask" class="mask">
+  <div class="spinner"></div>
+  <div class="mask-text">Processing…</div>
+</div>
 
-      function openDialog(id) {
-        correct_id = id;
-        title_accurate.value = "";
-        dialog.showModal();
-      }
+<div id="toast" class="toast hidden"></div>
 
-      function crawlrargb() {
-        showMask();
-        axios
-          .get("/crawl_rargb", {
-            params: {
-              incremental: true,
-            },
-          })
-          .then(function (response) {
-            // handle success
-            console.log(
-              response.data,
-              "The other infos will update automatically later~",
-            );
-            hideMask();
-            location.reload();
-          })
-          .catch(function (error) {
-            // handle error
-            console.error(error);
-          });
-      }
+<script>
+  const dialog = document.getElementById('titleDialog');
+  const titleInput = document.getElementById('title_accurate');
+  let correctId = null;
 
-      function predict() {
-        showMask();
-        axios
-          .get("/predict")
-          .then(function (response) {
-            // handle success
-            console.log(response.data);
-            hideMask();
-            location.reload();
-          })
-          .catch(function (error) {
-            // handle error
-            console.error(error);
-          });
-      }
+  dialog.addEventListener('close', () => {
+    if (dialog.returnValue === 'confirm' && titleInput.value.trim()) {
+      axios.put(`/movies/${correctId}/correct`, { title_accurate: titleInput.value.trim() })
+        .then(async r => { await showToast(r.data.message); location.reload(); })
+        .catch(console.error);
+    }
+  });
 
-      function crawlimdb() {
-        showMask();
-        axios
-          .get("/crawl_imdb")
-          .then(function (response) {
-            // handle success
-            console.log(response.data);
-            hideMask();
-            location.reload();
-          })
-          .catch(function (error) {
-            // handle error
-            console.error(error);
-          });
-      }
-      function abandonItem(itemId) {
-        axios
-          .get(`/movies/${itemId}/abandon`)
-          .then(async function (response) {
-            await showToast(response.data.message);
-            location.reload();
-          })
-          .catch(function (error) {
-            console.error(error);
-          });
-      }
+  function openDialog(id) {
+    correctId = id;
+    titleInput.value = '';
+    dialog.showModal();
+    setTimeout(() => titleInput.focus(), 50);
+  }
 
-      function watchedItem(itemId) {
-        axios
-          .get(`/movies/${itemId}/watched`)
-          .then(async function (response) {
-            await showToast(response.data.message);
-            location.reload();
-          })
-          .catch(function (error) {
-            console.error(error);
-          });
-      }
+  function crawlrargb() {
+    showMask('Crawling RARGB…');
+    axios.get('/crawl_rargb', { params: { incremental: true } })
+      .then(r => { hideMask(); showToast(r.data.message).then(() => location.reload()); })
+      .catch(e => { hideMask(); console.error(e); });
+  }
 
-      function showMask() {
-        document.getElementById("mask").style.display = "flex";
-      }
+  function abandonItem(id) {
+    axios.get(`/movies/${id}/abandon`)
+      .then(async r => { await showToast(r.data.message); location.reload(); })
+      .catch(console.error);
+  }
 
-      function hideMask() {
-        document.getElementById("mask").style.display = "none";
-      }
+  function watchedItem(id) {
+    axios.get(`/movies/${id}/watched`)
+      .then(async r => { await showToast(r.data.message); location.reload(); })
+      .catch(console.error);
+  }
 
-      function train() {
-        showMask();
-        axios
-          .post("/model/train")
-          .then(async function (response) {
-            await showToast(response.data.message);
-            hideMask();
-          })
-          .catch(function (error) {
-            console.error(error);
-          });
-      }
+  function train() {
+    showMask('Training model…');
+    axios.post('/model/train')
+      .then(async r => { hideMask(); await showToast(r.data.message); })
+      .catch(e => { hideMask(); console.error(e); });
+  }
 
-      function showToast(msg, duration = 1500) {
-        return new Promise((resolv) => {
-          const toast = document.getElementById("notification");
-          toast.textContent = msg;
-          toast.classList.remove("hidden");
-          setTimeout(() => {
-            toast.classList.add("hidden");
-            resolv();
-          }, duration);
-        });
-      }
-    </script>
-  </body>
+  function showMask(msg = 'Processing…') {
+    document.querySelector('.mask-text').textContent = msg;
+    document.getElementById('mask').style.display = 'flex';
+  }
+
+  function hideMask() {
+    document.getElementById('mask').style.display = 'none';
+  }
+
+  function showToast(msg, duration = 2000) {
+    return new Promise(resolve => {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => { t.classList.add('hidden'); resolve(); }, duration);
+    });
+  }
+</script>
+</body>
 </html>
