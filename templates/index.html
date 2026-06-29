@@ -71,14 +71,12 @@
             <div>
               <a href="{{item.url}}" target="_blank">
                 {% if not item.title_accurate %}
-                <font color="red">{{item.title}}</font>
+                <span class="title-predicted">{{item.title if item.title else '—'}}</span>
                 {% else%}
-                <font color="green">{{item.title_accurate}}</font>
+                <span class="title-accurate">{{item.title_accurate}}</span>
                 {% endif %}
               </a>
-              <p style="color: gray; font-size: 12px; word-wrap: break-word">
-                {{item.filename}}
-              </p>
+              <p class="filename">{{item.filename}}</p>
               <button class="hyperlink" onclick="openDialog('{{item.id}}')">
                 Correct
               </button>

@@ -1,4 +1,7 @@
+import re
 from bloom_filter import BloomFilter
+
+_PUNCT_RE = re.compile(r'[^a-z0-9]+')
 
 
 class BloomUtils:
@@ -6,18 +9,18 @@ class BloomUtils:
         self.instance = BloomFilter(filename="./data/bf.bin")
 
     def add(self, item: str) -> None:
-        self.instance.add(deal_string(item))
+        self.instance.add(normalize(item))
 
     def hasItem(self, item: str) -> bool:
-        item = deal_string(item)
-        if item == "":
+        normed = normalize(item)
+        if not normed:
             return True
-        else:
-            return item in self.instance
+        return normed in self.instance
 
 
-def deal_string(s: str) -> str:
-    return s.replace(".", " ").lower().strip()
+def normalize(s: str) -> str:
+    s = _PUNCT_RE.sub(' ', s.lower())
+    return s.strip()
 
 
 if __name__ == "__main__":

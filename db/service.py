@@ -12,6 +12,9 @@ from model.model import model
 from utils.bloom_utils import BloomUtils
 from utils.pager_utils import validate_order_by, PER_PAGE
 
+# Module-level singleton so state accumulates across requests without disk re-reads.
+_bloom = BloomUtils()
+
 logger = logging.getLogger(__name__)
 
 _YEAR_RE = re.compile(r"\b(19\d{2}|20[0-2]\d)\b")
@@ -226,24 +229,20 @@ class MovieService:
         self.movieRepository.update(updated_m)
 
     def predict(self, movie: Movie):
-        bf = BloomUtils()
         util = ProducerUtil()
         predicted_m = model.predict(movie)
-        if not predicted_m:
+        if not predicted_m or not predicted_m.title:
             return
 
-        if not predicted_m.title:
-            return
-
-        hasItem = bf.hasItem(predicted_m.title)
-        if hasItem:
+        if _bloom.hasItem(predicted_m.title):
             logger.info(
-                f"[x] Found existing items: {predicted_m.title} in DB, skipping update."
+                f"[x] Duplicate title '{predicted_m.title}', removing row."
             )
             self.movieRepository.delete(predicted_m.id)
             return
 
         self.movieRepository.update(predicted_m)
+        _bloom.add(predicted_m.title)  # register so later dupes are caught
         util.produce(
             "xyz.lidaning.myrargb.topics.crawl_imdb",
             {"movie": predicted_m.model_dump()},
