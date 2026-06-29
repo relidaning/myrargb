@@ -63,6 +63,7 @@ def index():
         total_pages=total_pages(total),
         pages=pages,
         finetunable=finetunable,
+        trainable_count=trainable_count,
     )
 
 

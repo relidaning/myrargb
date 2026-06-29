@@ -19,6 +19,10 @@ class BloomUtils:
 
 
 def normalize(s: str) -> str:
+    """Normalize a title for dedup: lowercase, collapse all non-alphanumeric to space.
+
+    'a.b.c', 'a b c', 'a-b-c', 'a_b_c' all become 'a b c'.
+    """
     s = _PUNCT_RE.sub(' ', s.lower())
     return s.strip()
 

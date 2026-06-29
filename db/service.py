@@ -10,10 +10,19 @@ from typing import List
 from crawler import ImdbCrawler, RargbCrawler
 from model.model import model
 from utils.bloom_utils import BloomUtils
-from utils.pager_utils import validate_order_by, PER_PAGE
 
-# Module-level singleton so state accumulates across requests without disk re-reads.
+# Module-level singletons — shared state across requests without repeated init cost.
 _bloom = BloomUtils()
+_producer = ProducerUtil()
+_imdb_crawler: "ImdbCrawler | None" = None
+
+
+def _get_imdb_crawler() -> "ImdbCrawler":
+    global _imdb_crawler
+    if _imdb_crawler is None:
+        _imdb_crawler = ImdbCrawler()
+    return _imdb_crawler
+from utils.pager_utils import validate_order_by, PER_PAGE
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +122,7 @@ class MovieService:
         checks (manual UI use).
         """
         try:
-            util = ProducerUtil()
-            if not util.available():
+            if not _producer.available():
                 logger.error("[x] Kafka is unreachable — aborting crawl.")
                 return False
 
@@ -125,8 +133,8 @@ class MovieService:
             page_start = range_start
             page_end = range_end
 
+            crawler = RargbCrawler()
             while True:
-                crawler = RargbCrawler()
                 items = crawler.crawl({"page": current_page})
                 if not items:
                     logger.info(f"[v] No items on page {current_page}, stopping.")
@@ -157,11 +165,11 @@ class MovieService:
                         item.year = year
 
                     try:
-                        self.movieRepository.insert(item)
+                        item.id = self.movieRepository.insert(item)
                     except sqlite3.IntegrityError:
                         logger.debug(f"[v] Duplicate URL skipped: {item.url}")
                         continue
-                    util.produce(
+                    _producer.produce(
                         "xyz.lidaning.myrargb.topics.predict",
                         {"movie": item.model_dump()},
                     )
@@ -193,13 +201,12 @@ class MovieService:
 
     def produce_predict_backlog(self) -> int:
         """Produce Kafka messages for all items still needing title prediction."""
-        util = ProducerUtil()
-        if not util.available():
+        if not _producer.available():
             logger.error("[x] Kafka is unreachable — cannot produce backlog.")
             return -1
         items = self.get_items(Workflow.PREDICT)
         for item in items:
-            util.produce(
+            _producer.produce(
                 "xyz.lidaning.myrargb.topics.predict",
                 {"movie": item.model_dump()},
             )
@@ -208,13 +215,12 @@ class MovieService:
 
     def produce_imdb_backlog(self) -> int:
         """Produce Kafka messages for all items still needing IMDb scoring."""
-        util = ProducerUtil()
-        if not util.available():
+        if not _producer.available():
             logger.error("[x] Kafka is unreachable — cannot produce backlog.")
             return -1
         items = self.get_items(Workflow.SCORING)
         for item in items:
-            util.produce(
+            _producer.produce(
                 "xyz.lidaning.myrargb.topics.crawl_imdb",
                 {"movie": item.model_dump()},
             )
@@ -222,14 +228,12 @@ class MovieService:
         return len(items)
 
     def crawl_imdb(self, m: Movie):
-        crawler = ImdbCrawler()
-        updated_m = crawler.crawl(m)
+        updated_m = _get_imdb_crawler().crawl(m)
         if not updated_m:
             return
         self.movieRepository.update(updated_m)
 
     def predict(self, movie: Movie):
-        util = ProducerUtil()
         predicted_m = model.predict(movie)
         if not predicted_m or not predicted_m.title:
             return
@@ -242,8 +246,8 @@ class MovieService:
             return
 
         self.movieRepository.update(predicted_m)
-        _bloom.add(predicted_m.title)  # register so later dupes are caught
-        util.produce(
+        _bloom.add(predicted_m.title)
+        _producer.produce(
             "xyz.lidaning.myrargb.topics.crawl_imdb",
             {"movie": predicted_m.model_dump()},
         )
