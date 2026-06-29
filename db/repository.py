@@ -52,7 +52,7 @@ class BaseRepository(Generic[T]):
         db.conn.commit()
         return True
 
-    def insert(self, model: T) -> bool:
+    def insert(self, model: T) -> int:
         dump = {k: v for k, v in model.model_dump().items() if v is not None}
         keys = ", ".join(dump.keys())
         placeholders = ", ".join(["?"] * len(dump))
@@ -60,14 +60,14 @@ class BaseRepository(Generic[T]):
         db.cur.execute(sql, list(dump.values()))
         db.conn.commit()
         logger.info(f"[v] Executing query: {sql}")
-        return True
+        return db.cur.lastrowid
 
     def delete(self, id: int | None) -> bool:
         if not id:
             raise Exception(f"Deleting canceled: id of {self.table_name} is None.")
-        sql = f"DELETE FROM {self.table_name} WHERE id = {id}"
-        db.cur.execute(sql)
-        logger.info(f"[v] Executing query: {sql}")
+        sql = f"DELETE FROM {self.table_name} WHERE id = ?"
+        db.cur.execute(sql, (id,))
+        logger.info(f"[v] Executing query: {sql} | id={id}")
         db.conn.commit()
         return True
 

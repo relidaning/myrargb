@@ -25,7 +25,11 @@ class ProducerUtil:
         return ProducerUtil._available_cache
 
     def produce(self, topic: str, task: dict):
-        self.producer.produce(topic, json.dumps(task).encode("utf-8"))
+        try:
+            self.producer.produce(topic, json.dumps(task).encode("utf-8"))
+        except KafkaException:
+            ProducerUtil._available_cache = None
+            raise
 
     def __del__(self):
         self.producer.flush()
