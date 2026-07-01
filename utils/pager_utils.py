@@ -29,7 +29,17 @@ def validate_order_by(order_by: str) -> str:
             direction = tokens[1].upper()
             if direction not in ("ASC", "DESC"):
                 raise PagerError(f"Invalid direction in order_by: {part!r}")
-        clean.append(f"{col} {direction}")
+        if col == "score":
+            # score is stored as text ('7.2', 'unmatched', or NULL) — comparing
+            # it as a string sorts 'unmatched' above any numeric value (since
+            # 'u' > any digit) and sorts '10' below '9.5'. Always push
+            # null/unmatched rows last and compare real values numerically.
+            clean.append(
+                "(score IS NULL OR score = '' OR score = 'unmatched') ASC, "
+                f"CAST(score AS REAL) {direction}"
+            )
+        else:
+            clean.append(f"{col} {direction}")
     return ", ".join(clean)
 
 

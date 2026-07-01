@@ -40,13 +40,18 @@ def index():
     from utils.pager_utils import page_offset, has_next_page, total_pages, page_range, PER_PAGE
 
     page = request.args.get("page", 1, type=int)
+    query = request.args.get("q", "", type=str).strip()
     order_by = "score DESC, marked asc"
 
     offset = page_offset(page)
     movies = service.get_items(
-        workflow=Workflow.NONE, limit=PER_PAGE, offset=offset, order_by=order_by
+        workflow=Workflow.NONE,
+        limit=PER_PAGE,
+        offset=offset,
+        order_by=order_by,
+        search=query or None,
     )
-    total = service.count_items(workflow=Workflow.NONE)
+    total = service.count_items(workflow=Workflow.NONE, search=query or None)
     pages = page_range(page, total_pages(total))
 
     movies_to_train = service.get_items(
@@ -59,6 +64,7 @@ def index():
         "index.html",
         items=movies,
         page=page,
+        q=query,
         has_next=has_next_page(total, page),
         total_pages=total_pages(total),
         pages=pages,

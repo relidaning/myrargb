@@ -11,6 +11,20 @@
 
 <nav class="navbar">
   <span class="navbar-brand">MyRargb</span>
+  <form class="navbar-search" method="get" action="/">
+    <input
+      type="text"
+      name="q"
+      class="search-input"
+      placeholder="Search title or filename…"
+      value="{{ q }}"
+      autocomplete="off"
+    />
+    <button type="submit" class="btn btn-ghost-search" aria-label="Search">&#128269;</button>
+    {% if q %}
+      <a href="/" class="btn btn-ghost-search" aria-label="Clear search">&times;</a>
+    {% endif %}
+  </form>
   <div class="navbar-actions">
     <button class="btn btn-primary" onclick="crawlrargb()">&#8595; Crawl</button>
     {% if finetunable %}
@@ -101,7 +115,7 @@
 
   <div class="pagination">
     {% if page > 1 %}
-      <a class="page-btn" href="/?page={{ page - 1 }}">&larr;</a>
+      <a class="page-btn" href="/?page={{ page - 1 }}{% if q %}&q={{ q | urlencode }}{% endif %}">&larr;</a>
     {% endif %}
 
     {% for p in pages %}
@@ -110,12 +124,12 @@
       {% elif p == page %}
         <span class="page-btn page-current">{{ p }}</span>
       {% else %}
-        <a class="page-btn" href="/?page={{ p }}">{{ p }}</a>
+        <a class="page-btn" href="/?page={{ p }}{% if q %}&q={{ q | urlencode }}{% endif %}">{{ p }}</a>
       {% endif %}
     {% endfor %}
 
     {% if has_next %}
-      <a class="page-btn" href="/?page={{ page + 1 }}">&rarr;</a>
+      <a class="page-btn" href="/?page={{ page + 1 }}{% if q %}&q={{ q | urlencode }}{% endif %}">&rarr;</a>
     {% endif %}
 
     <span class="page-info">{{ page }} / {{ total_pages }}</span>
@@ -165,6 +179,13 @@
     dialog.showModal();
     setTimeout(() => titleInput.focus(), 50);
   }
+
+  titleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      dialog.close('confirm');
+    }
+  });
 
   function crawlrargb() {
     showMask('Crawling RARGB…');

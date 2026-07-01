@@ -60,7 +60,13 @@ class MovieService:
             self.collectedRepository.insert(Collected(start=start, end=end))
 
     def get_items(
-        self, workflow: Workflow, sql="", limit=1000, offset=0, order_by="id DESC"
+        self,
+        workflow: Workflow,
+        sql="",
+        limit=1000,
+        offset=0,
+        order_by="id DESC",
+        search: str | None = None,
     ) -> List[Movie]:
         order_by = validate_order_by(order_by)
 
@@ -84,12 +90,19 @@ class MovieService:
         if sql:
             exe_sql += " " + sql + " "
 
+        params: list = []
+        if search:
+            exe_sql += " and (title LIKE ? OR title_accurate LIKE ? OR filename LIKE ?) "
+            like = f"%{search}%"
+            params.extend([like, like, like])
+
         exe_sql += f" ORDER BY {order_by} "
         exe_sql += " LIMIT ? OFFSET ? "
-        movies = self.movieRepository.execute_sql(exe_sql, (limit, offset))
+        params.extend([limit, offset])
+        movies = self.movieRepository.execute_sql(exe_sql, tuple(params))
         return movies
 
-    def count_items(self, workflow: Workflow, sql="") -> int:
+    def count_items(self, workflow: Workflow, sql="", search: str | None = None) -> int:
         where = " 1=1 "
 
         if workflow == Workflow.PREDICT:
@@ -108,7 +121,13 @@ class MovieService:
         if sql:
             where += " " + sql + " "
 
-        return self.movieRepository.count(where)
+        params: list = []
+        if search:
+            where += " and (title LIKE ? OR title_accurate LIKE ? OR filename LIKE ?) "
+            like = f"%{search}%"
+            params.extend([like, like, like])
+
+        return self.movieRepository.count(where, tuple(params))
 
     def crawl_rargb(self, incremental=True) -> bool:
         """Crawl rargb.to/movies/ for movie torrents.
@@ -169,10 +188,17 @@ class MovieService:
                     except sqlite3.IntegrityError:
                         logger.debug(f"[v] Duplicate URL skipped: {item.url}")
                         continue
-                    _producer.produce(
-                        "xyz.lidaning.myrargb.topics.predict",
-                        {"movie": item.model_dump()},
-                    )
+
+                    try:
+                        _producer.produce(
+                            "xyz.lidaning.myrargb.topics.predict",
+                            {"movie": item.model_dump()},
+                        )
+                    except Exception as e:
+                        # Item is already inserted — leave it for produce_predict_backlog()
+                        # to pick up later rather than aborting the whole crawl over one
+                        # failed produce call.
+                        logger.error(f"[x] Failed to produce predict task for item {item.id}: {e}")
                     new_on_page += 1
 
                     if item.added:
