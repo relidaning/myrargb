@@ -153,72 +153,75 @@ class MovieService:
             page_end = range_end
 
             crawler = RargbCrawler()
-            while True:
-                items = crawler.crawl({"page": current_page})
-                if not items:
-                    logger.info(f"[v] No items on page {current_page}, stopping.")
-                    break
+            try:
+                while True:
+                    items = crawler.crawl({"page": current_page})
+                    if not items:
+                        logger.info(f"[v] No items on page {current_page}, stopping.")
+                        break
 
-                new_on_page = 0
-                for item in items:
-                    if self.movieRepository.exists_by_url(item.url):
-                        logger.debug(f"[v] Skipping known URL: {item.url}")
-                        continue
+                    new_on_page = 0
+                    for item in items:
+                        if self.movieRepository.exists_by_url(item.url):
+                            logger.debug(f"[v] Skipping known URL: {item.url}")
+                            continue
 
-                    # Skip items inside the already-collected date range
-                    if (
-                        range_start
-                        and range_end
-                        and item.added
-                        and item.added > range_start
-                        and item.added < range_end
-                    ):
-                        logger.debug(
-                            f"[v] Item {item.added} inside collected range "
-                            f"({range_start} ~ {range_end}), skipping."
-                        )
-                        continue
+                        # Skip items inside the already-collected date range
+                        if (
+                            range_start
+                            and range_end
+                            and item.added
+                            and item.added > range_start
+                            and item.added < range_end
+                        ):
+                            logger.debug(
+                                f"[v] Item {item.added} inside collected range "
+                                f"({range_start} ~ {range_end}), skipping."
+                            )
+                            continue
 
-                    year = extract_year(item.filename)
-                    if year:
-                        item.year = year
+                        year = extract_year(item.filename)
+                        if year:
+                            item.year = year
 
-                    try:
-                        item.id = self.movieRepository.insert(item)
-                    except sqlite3.IntegrityError:
-                        logger.debug(f"[v] Duplicate URL skipped: {item.url}")
-                        continue
+                        try:
+                            item.id = self.movieRepository.insert(item)
+                        except sqlite3.IntegrityError:
+                            logger.debug(f"[v] Duplicate URL skipped: {item.url}")
+                            continue
 
-                    try:
-                        _producer.produce(
-                            "xyz.lidaning.myrargb.topics.predict",
-                            {"movie": item.model_dump()},
-                        )
-                    except Exception as e:
-                        # Item is already inserted — leave it for produce_predict_backlog()
-                        # to pick up later rather than aborting the whole crawl over one
-                        # failed produce call.
-                        logger.error(f"[x] Failed to produce predict task for item {item.id}: {e}")
-                    new_on_page += 1
+                        try:
+                            _producer.produce(
+                                "xyz.lidaning.myrargb.topics.predict",
+                                {"movie": item.model_dump()},
+                            )
+                        except Exception as e:
+                            # Item is already inserted — leave it for produce_predict_backlog()
+                            # to pick up later rather than aborting the whole crawl over one
+                            # failed produce call.
+                            logger.error(f"[x] Failed to produce predict task for item {item.id}: {e}")
+                        new_on_page += 1
 
-                    if item.added:
-                        if not page_start or item.added < page_start:
-                            page_start = item.added
-                        if not page_end or item.added > page_end:
-                            page_end = item.added
+                        if item.added:
+                            if not page_start or item.added < page_start:
+                                page_start = item.added
+                            if not page_end or item.added > page_end:
+                                page_end = item.added
 
-                logger.info(
-                    f"[v] Page {current_page}: {new_on_page} new items."
-                )
+                    logger.info(
+                        f"[v] Page {current_page}: {new_on_page} new items."
+                    )
 
-                # Persist range after each page so a crash doesn't lose progress
-                if incremental and page_start and page_end:
-                    self._update_collected_range(page_start, page_end)
+                    # Persist range after each page so a crash doesn't lose progress
+                    if incremental and page_start and page_end:
+                        self._update_collected_range(page_start, page_end)
 
-                if new_on_page == 0:
-                    break
+                    if new_on_page == 0:
+                        break
 
-                current_page += 1
+                    current_page += 1
+            finally:
+                crawler.close()
 
         except Exception as e:
             logger.error(f"[x] Error on crawling:\n{e}")

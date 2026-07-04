@@ -27,6 +27,7 @@
   </form>
   <div class="navbar-actions">
     <button class="btn btn-primary" onclick="crawlrargb()">&#8595; Crawl</button>
+    <button class="btn btn-ghost" onclick="deduplicate()">&#9851; Deduplicate</button>
     {% if finetunable %}
     <button class="btn btn-purple" onclick="train()">
       &#9889; Train <span class="badge">{{ trainable_count }}</span>
@@ -210,6 +211,13 @@
     showMask('Training model…');
     axios.post('/model/train')
       .then(async r => { hideMask(); await showToast(r.data.message); })
+      .catch(e => { hideMask(); console.error(e); });
+  }
+
+  function deduplicate() {
+    showMask('Removing duplicates…');
+    axios.get('/deduplicate')
+      .then(r => { hideMask(); showToast(r.data.message).then(() => location.reload()); })
       .catch(e => { hideMask(); console.error(e); });
   }
 

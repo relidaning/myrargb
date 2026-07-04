@@ -73,8 +73,8 @@ Two layers:
 - `service.py`: `_bloom` (BloomUtils) and `_producer` (ProducerUtil) are module-level singletons — never instantiate per-request or per-message.
 - `service.py`: `ImdbCrawler` is a lazy singleton — `_imdb_crawler = None` at module level, initialized on first use by `_get_imdb_crawler()`; driver created in `__init__` and reused across `crawl()` calls.
 - `handler.py`: `_service` (MovieService) is a module-level singleton — not re-instantiated per Kafka message.
-- `RargbCrawler` is instantiated once per crawl invocation, outside the page loop (not per page).
-- `PlaywrightDriver` creates the browser and context once in `__init__` and reuses them across all `fetch()` calls — stealth scripts and browser args are module-level constants, not per-request setup.
+- `RargbCrawler` is instantiated once per crawl invocation, outside the page loop (not per page), and **must be closed**: `crawl_rargb()` in `db/service.py` wraps the page loop in `try/finally: crawler.close()`. `RargbCrawler.close()` and a no-op default `BrowserDriver.close()` on the ABC were added after a prior OOM incident — see [Known open issues](#known-open-issues) and browser cleanup note below.
+- `PlaywrightDriver` creates the browser and context once in `__init__` and reuses them across all `fetch()` calls — stealth scripts and browser args are module-level constants, not per-request setup. Unlike `SeleniumBrowerDriver`/`UndetectedChromeBrowserDriver` (which clean up via `__del__` → `driver.quit()`), `PlaywrightDriver` has no destructor — its Chromium subprocess only ever closes via an explicit `close()` call, so any new code path that creates a `RargbCrawler`/`PlaywrightDriver` must close it (`ImdbCrawler`'s browser is the one intentional exception — it's a lazy singleton meant to stay open for the app's lifetime).
 
 ### Fine-tuning gate
 
@@ -86,6 +86,8 @@ Two layers:
 - **`collected` table no explicit `id`**: DDL is `(start text, end text)`, relying on SQLite implicit `rowid`. `BaseRepository.find_one(id)` queries `WHERE id = ?` against this rowid.
 - **Workflow WHERE duplication**: `get_items` and `count_items` in `service.py` have identical copy-pasted `if workflow == ...` blocks. Candidate for a `_workflow_where()` helper.
 - **`bloom_utils.hasItem("")` returns `True`**: the latent risk is mitigated by the caller-side guard in `predict()` (`if not predicted_m.title: return`), but the guard lives only in `service.py` — other callers of `hasItem` must also guard before passing an empty string.
+- **BS4 reference-cycle memory growth (fixed 2026-07-02)**: BS4 tags hold `.parent`/sibling back-references, so parsed trees are reference cycles reclaimable only by the cyclic GC, not refcounting. Under a fast back-to-back loop over hundreds of pages (e.g. draining a large `crawl_imdb` backlog), cycles piled up faster than GC scheduled a collection and process RSS ballooned — observed reaching ~5GB and pushing host memory to near-OOM (2026-07-02). Fix applied: both `RargbCrawler.crawl()` and `ImdbCrawler.crawl()` wrap soup usage in `try/finally: soup.decompose()`, so cycles are severed on every exit path (return, break, raise) and each page is reclaimed immediately by refcounting. `ImdbCrawler` also converts extracted `.string` values to plain `str` so returned `Movie` objects hold no `NavigableString` back-references into the tree. Any new BS4 call site must follow the same pattern.
+- **`crawl_rargb` produce failures leave orphaned DB rows**: when `_producer.produce()` for the `predict` topic fails (e.g. transient Kafka outage), `crawl_rargb()` logs and moves on — the item is already inserted but no Kafka message is ever sent for it, so the consumer never picks it up (Kafka lag stays 0; the backlog is invisible to lag metrics). Existing routes `/produce/predict` and `/produce/imdb` (backed by `produce_predict_backlog()` / `produce_imdb_backlog()`) can be triggered manually to backfill. No automatic retry exists yet — a periodic background thread calling these on a timer (matching the daemon-consumer-thread pattern) was proposed but not built.
 
 ## Key files
 
@@ -120,6 +122,8 @@ Docker Compose: app (Playwright image), Kafka (KRaft mode), Kafka UI (`:9090`). 
 
 `ProducerUtil._available_cache` is reset to `None` on `KafkaException` in `produce()` — if Kafka is temporarily down at startup, recovery is detected automatically on the next produce call without a restart.
 
-**GPU**: The app container uses `runtime: nvidia` (`NVIDIA_VISIBLE_DEVICES=all`) — T5 inference requires an NVIDIA GPU; the container will fail to start without one.
+**GPU**: The app container uses `runtime: nvidia` (`NVIDIA_VISIBLE_DEVICES=all`) — T5 inference requires an NVIDIA GPU; the container will fail to start without one. In practice (observed 2026-07-02 via `nvidia-smi` during a predict backlog drain) the T5 model runs CPU-only — GPU showed 0 processes and near-idle usage despite the runtime being configured — so predict throughput and host CPU/RAM load should be attributed to CPU inference, not assumed to be offloaded to CUDA.
+
+**Memory / allocator**: `MALLOC_ARENA_MAX=2` is set in `docker-compose.yml` for the app container. Without it, glibc's per-thread malloc arenas (7 consumer threads + Flask) retain freed heap instead of returning it to the OS — after the 2026-07-02 backlog drain, RSS plateaued at ~4 GiB even though idle sampling showed no active leak (the `soup.decompose()` fix had stopped real growth). Judge memory health by whether RSS is flat at idle, not by whether it drops back to the ~1 GiB startup baseline.
 
 **Proxy**: `HTTP_PROXY` / `HTTPS_PROXY` are set to `http://172.17.0.1:10808` (host machine via Docker bridge) so the container can reach rargb.to and IMDb. Without a working proxy at that address, crawling will fail silently.

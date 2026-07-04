@@ -17,6 +17,9 @@ class BrowserDriver(ABC):
     @abstractmethod
     def fetch(self, url: str) -> str: ...
 
+    def close(self) -> None:
+        """No-op by default; override if the driver owns a long-lived process."""
+
 
 class SeleniumBrowerDriver(BrowserDriver):
     def __init__(self):

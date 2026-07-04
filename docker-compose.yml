@@ -12,6 +12,10 @@ services:
       - HTTP_PROXY=http://172.17.0.1:10808
       - HTTPS_PROXY=http://172.17.0.1:10808
       - NVIDIA_VISIBLE_DEVICES=all
+      # Cap glibc malloc arenas: 7 consumer threads otherwise each hold an
+      # arena, and freed heap parks in them as retained RSS (seen ~4GiB
+      # after a backlog drain, 2026-07-02).
+      - MALLOC_ARENA_MAX=2
     volumes:
       - ./data:/app/data
     runtime: nvidia

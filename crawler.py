@@ -16,6 +16,9 @@ class RargbCrawler:
     def __init__(self):
         self._driver = DriverFactory().create_driver()
 
+    def close(self):
+        self._driver.close()
+
     def crawl(self, param: dict) -> List:
         page = param["page"]
         if page == 1:
@@ -26,32 +29,38 @@ class RargbCrawler:
         html = self._driver.fetch(url)
 
         soup = BeautifulSoup(html, "html.parser")
-        table = soup.find("table", {"class": "lista2t"})
+        # BS4 trees are full of parent/sibling reference cycles, reclaimable
+        # only by the cyclic GC; decompose on every exit path so each page is
+        # freed by refcounting instead of piling up across a long crawl.
+        try:
+            table = soup.find("table", {"class": "lista2t"})
 
-        if not table:
-            logger.error(
-                "❌ Could not find result table. Cloudflare may need more delay.\n {html}"
-            )
-            return []
+            if not table:
+                logger.error(
+                    "❌ Could not find result table. Cloudflare may need more delay.\n {html}"
+                )
+                return []
 
-        movies = []
-        rows = table.find_all("tr")[1:]
+            movies = []
+            rows = table.find_all("tr")[1:]
 
-        for r in rows:
-            cols = r.find_all("td")
+            for r in rows:
+                cols = r.find_all("td")
 
-            a = cols[1].find("a")
-            assert a is not None
-            movie = Movie(
-                filename=a.text.strip(),
-                url=f"https://rargb.to{a['href']}",
-                size=cols[4].text.strip(),
-                added=cols[3].text.strip(),
-            )
-            logger.debug(f"[v] Found item: {movie.filename}")
-            movies.append(movie)
+                a = cols[1].find("a")
+                assert a is not None
+                movie = Movie(
+                    filename=a.text.strip(),
+                    url=f"https://rargb.to{a['href']}",
+                    size=cols[4].text.strip(),
+                    added=cols[3].text.strip(),
+                )
+                logger.debug(f"[v] Found item: {movie.filename}")
+                movies.append(movie)
 
-        return movies
+            return movies
+        finally:
+            soup.decompose()
 
 
 class ImdbCrawler:
@@ -88,38 +97,44 @@ class ImdbCrawler:
                     raise ValueError("empty html")
 
                 soup = BeautifulSoup(html, "html.parser")
-                ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
-                if not ul:
-                    logger.info(f"[x] Could not find result list (attempt {attempt}/{IMDB_MAX_ATTEMPTS}).")
-                    raise ValueError("result list not found")
+                # Same cycle-severing rule as RargbCrawler.crawl(): decompose
+                # on every exit path (return, break, raise) so a fast loop
+                # over a large crawl_imdb backlog can't balloon RSS.
+                try:
+                    ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
+                    if not ul:
+                        logger.info(f"[x] Could not find result list (attempt {attempt}/{IMDB_MAX_ATTEMPTS}).")
+                        raise ValueError("result list not found")
 
-                lis = ul.find_all("li", {"class": "ipc-metadata-list-summary-item"})
-                if not lis or len(lis) == 0:
-                    logger.info(f"[x] IMDb returned zero results for '{title}'.")
-                    break  # genuine empty result set — not worth retrying
+                    lis = ul.find_all("li", {"class": "ipc-metadata-list-summary-item"})
+                    if not lis or len(lis) == 0:
+                        logger.info(f"[x] IMDb returned zero results for '{title}'.")
+                        break  # genuine empty result set — not worth retrying
 
-                for li in lis:
-                    li_img = li.find("img", {"class": "ipc-image"})
-                    poster = li_img["src"] if li_img else None
-                    li_title = li.find("h3", {"class": "ipc-title__text"})
-                    found_title = li_title.string if li_title else None
-                    li_score = li.find("span", {"class": "ipc-rating-star--rating"})
-                    score = li_score.string if li_score else None
-                    li_year = li.find("li", {"class": "ipc-inline-list__item"})
-                    year = li_year.string if li_year else None
-                    if item.year and year != item.year:
-                        logger.info(f"[x] Year mismatch: IMDb={year}, expected={item.year}, trying next result.")
-                        continue
+                    for li in lis:
+                        li_img = li.find("img", {"class": "ipc-image"})
+                        poster = li_img["src"] if li_img else None
+                        li_title = li.find("h3", {"class": "ipc-title__text"})
+                        found_title = str(li_title.string) if li_title and li_title.string else None
+                        li_score = li.find("span", {"class": "ipc-rating-star--rating"})
+                        score = str(li_score.string) if li_score and li_score.string else None
+                        li_year = li.find("li", {"class": "ipc-inline-list__item"})
+                        year = str(li_year.string) if li_year and li_year.string else None
+                        if item.year and year != item.year:
+                            logger.info(f"[x] Year mismatch: IMDb={year}, expected={item.year}, trying next result.")
+                            continue
 
-                    return Movie(
-                        id=item.id,
-                        poster=poster,
-                        title=found_title,
-                        score=score,
-                    )
+                        return Movie(
+                            id=item.id,
+                            poster=poster,
+                            title=found_title,
+                            score=score,
+                        )
 
-                logger.info(f"[x] No year-matching IMDb result for '{title}' (expected {item.year}).")
-                break  # scanned every candidate — genuine no-match, not worth retrying
+                    logger.info(f"[x] No year-matching IMDb result for '{title}' (expected {item.year}).")
+                    break  # scanned every candidate — genuine no-match, not worth retrying
+                finally:
+                    soup.decompose()
 
             except Exception as e:
                 logger.error(f" Error processing item {item} (attempt {attempt}/{IMDB_MAX_ATTEMPTS}): {e}")
