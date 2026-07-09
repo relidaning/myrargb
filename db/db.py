@@ -21,6 +21,7 @@ class MyRargbDB:
         init_conn = sqlite3.connect(_DB_PATH)
         init_cur = init_conn.cursor()
         init_cur.execute("PRAGMA journal_mode=WAL")
+        init_cur.execute("PRAGMA synchronous=NORMAL")
         init_cur.execute("PRAGMA busy_timeout=5000")
         self._create_tables(init_cur)
         self._migrate(init_cur)
@@ -34,6 +35,9 @@ class MyRargbDB:
     def _open_thread_conn(self):
         conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
+        # NORMAL skips the per-commit fsync (WAL only fsyncs on checkpoint);
+        # crawl_schedule commits per row, so FULL costs hundreds of fsyncs per run.
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
@@ -82,6 +86,52 @@ class MyRargbDB:
                 value TEXT
             ) """
         )
+        cur.execute(
+            """ CREATE TABLE IF NOT EXISTS tv_shows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tvmaze_id INTEGER,
+                name TEXT,
+                premiered TEXT,
+                ended TEXT,
+                status TEXT,
+                score TEXT,
+                genres TEXT,
+                poster TEXT,
+                summary TEXT,
+                network TEXT,
+                language TEXT,
+                follow_status TEXT,
+                next_episode_id INTEGER,
+                updated_at TEXT
+            ) """
+        )
+        cur.execute(
+            """ CREATE TABLE IF NOT EXISTS tv_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tv_show_id INTEGER,
+                message TEXT,
+                episode_code TEXT,
+                airdate TEXT,
+                read_flag TEXT DEFAULT '0',
+                created_at TEXT
+            ) """
+        )
+        cur.execute(
+            """ CREATE TABLE IF NOT EXISTS tv_schedule (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT,
+                tvmaze_id INTEGER,
+                name TEXT,
+                poster TEXT,
+                score TEXT,
+                genres TEXT,
+                network TEXT,
+                language TEXT,
+                episode_code TEXT,
+                airdate TEXT,
+                updated_at TEXT
+            ) """
+        )
         try:
             cur.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_url ON movies(url)"
@@ -91,21 +141,39 @@ class MyRargbDB:
                 "Could not create unique index on movies(url) — "
                 "duplicate URLs exist. Run deduplication to clean them."
             )
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tv_shows_tvmaze_id ON tv_shows(tvmaze_id)"
+        )
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tv_schedule_date_show ON tv_schedule(date, tvmaze_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tv_schedule_date ON tv_schedule(date)"
+        )
 
     def _migrate(self, cur):
-        existing = {row[1] for row in cur.execute("PRAGMA table_info(movies)")}
-        migrations = {
-            "score": "ALTER TABLE movies ADD COLUMN score TEXT",
-            "genre": "ALTER TABLE movies ADD COLUMN genre TEXT",
-            "poster": "ALTER TABLE movies ADD COLUMN poster TEXT",
-            "title_accurate": "ALTER TABLE movies ADD COLUMN title_accurate TEXT",
-            "trained_flag": "ALTER TABLE movies ADD COLUMN trained_flag TEXT DEFAULT '0'",
-            "marked": "ALTER TABLE movies ADD COLUMN marked TEXT DEFAULT '00'",
-            "year": "ALTER TABLE movies ADD COLUMN year TEXT",
+        table_migrations = {
+            "movies": {
+                "score": "ALTER TABLE movies ADD COLUMN score TEXT",
+                "genre": "ALTER TABLE movies ADD COLUMN genre TEXT",
+                "poster": "ALTER TABLE movies ADD COLUMN poster TEXT",
+                "title_accurate": "ALTER TABLE movies ADD COLUMN title_accurate TEXT",
+                "trained_flag": "ALTER TABLE movies ADD COLUMN trained_flag TEXT DEFAULT '0'",
+                "marked": "ALTER TABLE movies ADD COLUMN marked TEXT DEFAULT '00'",
+                "year": "ALTER TABLE movies ADD COLUMN year TEXT",
+            },
+            "tv_shows": {
+                "language": "ALTER TABLE tv_shows ADD COLUMN language TEXT",
+            },
+            "tv_schedule": {
+                "language": "ALTER TABLE tv_schedule ADD COLUMN language TEXT",
+            },
         }
-        for col, sql in migrations.items():
-            if col not in existing:
-                cur.execute(sql)
+        for table, migrations in table_migrations.items():
+            existing = {row[1] for row in cur.execute(f"PRAGMA table_info({table})")}
+            for col, sql in migrations.items():
+                if col not in existing:
+                    cur.execute(sql)
         cur.connection.commit()
 
 

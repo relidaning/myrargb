@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyRargb — TV</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<nav class="navbar navbar-top">
+  <span class="navbar-brand">MyRargb</span>
+  <div class="navbar-search search-bar">
+    <input
+      type="text"
+      id="tv-search-input"
+      class="search-input"
+      placeholder="Search TV shows…"
+      autocomplete="off"
+    />
+    <div id="search-dropdown" class="search-dropdown hidden"></div>
+  </div>
+  <div class="navbar-actions">
+    <a class="btn btn-ghost" href="/">&larr; Movies</a>
+    <button class="btn btn-ghost bell-btn" onclick="toggleNotifications()">
+      &#128276; <span id="notif-badge" class="badge hidden">0</span>
+    </button>
+  </div>
+</nav>
+
+<div id="notif-panel" class="notif-panel hidden"></div>
+
+<div id="tv-popover" class="tv-popover hidden"></div>
+
+<nav class="navbar navbar-tabs">
+  <div class="tabs">
+    <a class="tab {% if tab == 'calendar' %}tab-active{% endif %}" href="/tv?tab=calendar">Calendar</a>
+    <a class="tab {% if tab == 'following' %}tab-active{% endif %}" href="/tv?tab=following">Following</a>
+    <a class="tab {% if tab == 'abandoned' %}tab-active{% endif %}" href="/tv?tab=abandoned">Abandoned</a>
+  </div>
+  {% if tab == 'calendar' %}
+  <div class="navbar-actions">
+    <a class="btn btn-ghost" href="/tv?tab=calendar&start={{ prev_start }}">&larr; Prev week</a>
+    <a class="btn btn-ghost" href="/tv?tab=calendar&start={{ today }}">Today</a>
+    <a class="btn btn-ghost" href="/tv?tab=calendar&start={{ next_start }}">Next week &rarr;</a>
+  </div>
+  {% endif %}
+</nav>
+
+<main class="main">
+
+  {% if tab == 'calendar' %}
+  <div class="calendar-grid">
+    {% for day in calendar_days %}
+    <div class="calendar-day {% if day.date == today %}calendar-day-today{% endif %}">
+      <div class="calendar-day-header">
+        <span class="calendar-day-weekday">{{ day.weekday }}</span>
+        <span class="muted">{{ day.date }}</span>
+      </div>
+      <div class="calendar-day-body" id="day-body-{{ day.date }}">
+        {% if day.shows %}
+          {% for s in day.shows %}
+            {% include "_tv_show_card.html" %}
+          {% endfor %}
+        {% else %}
+          <div class="muted calendar-empty">No shows.</div>
+        {% endif %}
+      </div>
+      {% if day.total > day.shows | length %}
+        <button
+          class="action-btn btn-edit calendar-more-btn"
+          data-date="{{ day.date }}"
+          data-offset="{{ day.shows | length }}"
+          data-total="{{ day.total }}"
+          onclick="loadMoreForDay(this)"
+        >More ({{ day.total - (day.shows | length) }})</button>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% else %}
+
+  <div class="table-wrapper">
+    <table class="movie-table">
+      <thead>
+        <tr>
+          <th class="tc" style="width:44px">#</th>
+          <th style="width:60px">Poster</th>
+          <th>Name</th>
+          <th class="tc" style="width:100px">Premiered</th>
+          <th style="width:130px">Network</th>
+          <th class="tc" style="width:90px">Language</th>
+          <th class="tc" style="width:76px">Score</th>
+          <th style="width:170px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr class="movie-row{% if item.follow_status == 'abandoned' %} row-abandoned{% endif %}" data-tvmaze-id="{{ item.tvmaze_id }}">
+          <td class="tc muted">{{ (page - 1) * 20 + loop.index }}</td>
+          <td>
+            <img
+              src="{{ item.poster if item.poster else url_for('static', filename='images/default.jpg') }}"
+              alt="poster" class="poster-img" loading="lazy"
+            />
+          </td>
+          <td>
+            <span class="title title-ok">{{ item.name }}</span>
+            {% if item.genres %}<span class="filename">{{ item.genres }}</span>{% endif %}
+          </td>
+          <td class="tc muted">{{ item.premiered or '—' }}</td>
+          <td class="muted">{{ item.network or '—' }}</td>
+          <td class="tc muted">{{ item.language or '—' }}</td>
+          <td class="tc">
+            {% if item.score %}
+              {% set s = item.score | float %}
+              <span class="score-badge {% if s >= 7 %}score-high{% elif s >= 5 %}score-mid{% else %}score-low{% endif %}">
+                &#9733; {{ item.score }}
+              </span>
+            {% else %}
+              <span class="score-badge score-pending">?</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if item.follow_status == 'following' %}
+              <span class="status-tag tag-watched">Following</span>
+              <button class="action-btn btn-drop" onclick="abandonTv('{{ item.id }}')">Unfollow</button>
+            {% else %}
+              <span class="status-tag tag-abandoned">Abandoned</span>
+              <button class="action-btn btn-watch" onclick="followTv('{{ item.id }}')">Re-follow</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination">
+    {% if page > 1 %}
+      <a class="page-btn" href="/tv?tab={{ tab }}&page={{ page - 1 }}">&larr;</a>
+    {% endif %}
+    {% for p in pages %}
+      {% if p is none %}
+        <span class="page-gap">&hellip;</span>
+      {% elif p == page %}
+        <span class="page-btn page-current">{{ p }}</span>
+      {% else %}
+        <a class="page-btn" href="/tv?tab={{ tab }}&page={{ p }}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if has_next %}
+      <a class="page-btn" href="/tv?tab={{ tab }}&page={{ page + 1 }}">&rarr;</a>
+    {% endif %}
+    <span class="page-info">{{ page }} / {{ total_pages }}</span>
+  </div>
+
+  {% endif %}
+</main>
+
+<div id="mask" class="mask">
+  <div class="spinner"></div>
+  <div class="mask-text">Processing…</div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+  // TVMaze data (names, genres, networks…) is user-submitted upstream and is
+  // interpolated into innerHTML below — escape it or a show title like
+  // <img onerror=…> executes in the page.
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function followTv(id) {
+    axios.get(`/tv/${id}/follow`)
+      .then(async r => { await showToast(r.data.message); location.reload(); })
+      .catch(console.error);
+  }
+
+  function abandonTv(id) {
+    axios.get(`/tv/${id}/abandon`)
+      .then(async r => { await showToast(r.data.message); location.reload(); })
+      .catch(console.error);
+  }
+
+  function followTvmaze(tvmazeId, btn) {
+    axios.post(`/tv/tvmaze/${tvmazeId}/follow`)
+      .then(async r => {
+        await showToast(r.data.message);
+        if (btn) {
+          const card = btn.closest('.calendar-show-card, .search-result-item');
+          if (card) card.classList.add('following');
+          btn.outerHTML = `<button class="action-btn btn-drop" onclick="abandonTv(${r.data.id})">Unfollow</button>`;
+        } else {
+          location.reload();
+        }
+      })
+      .catch(e => { console.error(e); showToast('Could not follow show.'); });
+  }
+
+  function showMask(msg = 'Processing…') {
+    document.querySelector('.mask-text').textContent = msg;
+    document.getElementById('mask').style.display = 'flex';
+  }
+
+  function hideMask() {
+    document.getElementById('mask').style.display = 'none';
+  }
+
+  function showToast(msg, duration = 2000) {
+    return new Promise(resolve => {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => { t.classList.add('hidden'); resolve(); }, duration);
+    });
+  }
+
+  function loadNotifications() {
+    axios.get('/tv/notifications').then(r => {
+      const list = r.data.notifications || [];
+      const badge = document.getElementById('notif-badge');
+      badge.textContent = list.length;
+      badge.classList.toggle('hidden', list.length === 0);
+
+      const panel = document.getElementById('notif-panel');
+      panel.innerHTML = list.length
+        ? list.map(n => `
+            <div class="notif-item">
+              <span>${esc(n.message)}</span>
+              <button class="action-btn btn-watch" onclick="readNotification(${Number(n.id)})">Dismiss</button>
+            </div>`).join('')
+        : '<div class="notif-item muted">No new episodes.</div>';
+    }).catch(console.error);
+  }
+
+  function readNotification(id) {
+    axios.post(`/tv/notifications/${id}/read`).then(loadNotifications).catch(console.error);
+  }
+
+  function toggleNotifications() {
+    document.getElementById('notif-panel').classList.toggle('hidden');
+  }
+
+  loadNotifications();
+  // Keep the bell fresh on long-open tabs — the 6-hour background crawl
+  // writes notifications this would otherwise never show until a refresh.
+  setInterval(loadNotifications, 5 * 60 * 1000);
+
+  // --- live search ---
+  const searchInput = document.getElementById('tv-search-input');
+  const searchDropdown = document.getElementById('search-dropdown');
+  let searchTimer = null;
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = searchInput.value.trim();
+    if (!q) { searchDropdown.classList.add('hidden'); searchDropdown.innerHTML = ''; return; }
+    searchTimer = setTimeout(() => runSearch(q), 300);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!searchDropdown.contains(e.target) && e.target !== searchInput) {
+      searchDropdown.classList.add('hidden');
+    }
+  });
+
+  function runSearch(q) {
+    axios.get('/tv/search', { params: { q } }).then(r => {
+      const results = r.data.results || [];
+      searchDropdown.innerHTML = results.length
+        ? results.map(s => `
+            <div class="search-result-item${s.follow_status === 'following' ? ' following' : ''}" data-tvmaze-id="${Number(s.tvmaze_id)}">
+              <img src="${esc(s.poster || '{{ url_for("static", filename="images/default.jpg") }}')}" class="search-result-poster" alt="poster" loading="lazy" />
+              <div class="search-result-body">
+                <div>${esc(s.name)}${s.premiered ? ` <span class="muted">(${esc(s.premiered.slice(0,4))})</span>` : ''}</div>
+                <div class="muted">${esc((s.genres || []).join(', '))}${s.network ? ' · ' + esc(s.network) : ''}${s.language ? ' · ' + esc(s.language) : ''}</div>
+              </div>
+              ${s.follow_status === 'following'
+                ? '<span class="status-tag tag-watched">Following</span>'
+                : `<button class="action-btn btn-watch" onclick="followTvmaze(${Number(s.tvmaze_id)}, this)">Follow</button>`}
+            </div>`).join('')
+        : '<div class="search-result-item muted">No results.</div>';
+      searchDropdown.classList.remove('hidden');
+    }).catch(console.error);
+  }
+
+  // --- calendar "Load more" ---
+  const DEFAULT_POSTER = '{{ url_for("static", filename="images/default.jpg") }}';
+
+  function scoreClass(score) {
+    if (!score) return 'score-pending';
+    return score >= 7 ? 'score-high' : score >= 5 ? 'score-mid' : 'score-low';
+  }
+
+  function renderShowCard(s) {
+    const following = s.follow_status === 'following';
+    const followBtn = following
+      ? `<button class="action-btn btn-drop" onclick="abandonTv(${Number(s.id)})">Unfollow</button>`
+      : `<button class="action-btn btn-watch" onclick="followTvmaze(${Number(s.tvmaze_id)}, this)">Follow</button>`;
+    return `
+      <div class="calendar-show-card${following ? ' following' : ''}" data-tvmaze-id="${Number(s.tvmaze_id)}">
+        <img src="${esc(s.poster || DEFAULT_POSTER)}" alt="poster" class="calendar-show-poster" loading="lazy" />
+        <div class="calendar-show-body">
+          <div class="calendar-show-name">${esc(s.name)}${s.episode_code ? ` <span class="muted">${esc(s.episode_code)}</span>` : ''}</div>
+          ${(s.genres || []).length || s.language ? `<div class="calendar-show-genres muted">${esc((s.genres || []).join(', '))}${(s.genres || []).length && s.language ? ' · ' : ''}${esc(s.language || '')}</div>` : ''}
+          <div class="calendar-show-footer">
+            <span class="score-badge ${scoreClass(s.score)}">${s.score ? '&#9733; ' + esc(s.score) : '?'}</span>
+            ${followBtn}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function loadMoreForDay(btn) {
+    const date = btn.dataset.date;
+    const offset = parseInt(btn.dataset.offset, 10);
+    const total = parseInt(btn.dataset.total, 10);
+    btn.disabled = true;
+    btn.textContent = 'Loading…';
+
+    axios.get(`/tv/day/${date}`, { params: { offset, limit: 10 } }).then(r => {
+      const shows = r.data.shows || [];
+      const body = document.getElementById(`day-body-${date}`);
+      body.insertAdjacentHTML('beforeend', shows.map(renderShowCard).join(''));
+
+      const newOffset = offset + shows.length;
+      btn.dataset.offset = newOffset;
+      if (newOffset >= total || shows.length === 0) {
+        btn.remove();
+      } else {
+        btn.disabled = false;
+        btn.textContent = `More (${total - newOffset})`;
+      }
+    }).catch(e => {
+      console.error(e);
+      btn.disabled = false;
+      btn.textContent = 'More';
+    });
+  }
+
+  // --- hover detail popover ---
+  // Anything with data-tvmaze-id (calendar cards, search results, table rows)
+  // shows a detail popover after a sustained 2s hover. Details are fetched
+  // once per show and kept in an in-page cache.
+  const HOVER_DETAIL_DELAY_MS = 1000;
+  const POPOVER_HIDE_GRACE_MS = 250; // lets the mouse cross the gap into the popover
+
+  const popover = document.getElementById('tv-popover');
+  const detailCache = new Map();    // tvmaze_id -> detail object
+  const detailInflight = new Map(); // tvmaze_id -> pending Promise (dedupes prefetch + show)
+  let hoverCard = null;
+  let hoverTimer = null;
+  let hideTimer = null;
+  let showPending = false;
+
+  function armShowTimer(card) {
+    clearTimeout(hoverTimer);
+    showPending = true;
+    hoverTimer = setTimeout(() => {
+      showPending = false;
+      showPopoverFor(card);
+    }, HOVER_DETAIL_DELAY_MS);
+  }
+
+  function hidePopover() {
+    popover.classList.add('hidden');
+    hoverCard = null;
+  }
+
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hidePopover, POPOVER_HIDE_GRACE_MS);
+  }
+
+  document.addEventListener('mouseover', e => {
+    const card = e.target.closest('[data-tvmaze-id]');
+    if (!card) return;
+    if (card === hoverCard) {
+      clearTimeout(hideTimer);
+      // Re-entered before the popover ever showed (timer was cancelled on
+      // leave) — start the 2s count again.
+      if (popover.classList.contains('hidden') && !showPending) armShowTimer(card);
+      return;
+    }
+    hoverCard = card;
+    // Fetch detail + poster right away — the 2s timer only gates when the
+    // popover appears, so the slow parts (TVMaze round trip, big image
+    // download) overlap the hover delay instead of starting after it.
+    prefetchDetail(card.dataset.tvmazeId);
+    armShowTimer(card);
+  });
+
+  document.addEventListener('mouseout', e => {
+    const card = e.target.closest('[data-tvmaze-id]');
+    if (!card || card !== hoverCard) return;
+    const to = e.relatedTarget;
+    if (to && (card.contains(to) || popover.contains(to))) return;
+    clearTimeout(hoverTimer);
+    showPending = false;
+    scheduleHide();
+  });
+
+  popover.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+  popover.addEventListener('mouseleave', e => {
+    const to = e.relatedTarget;
+    if (to && hoverCard && hoverCard.contains(to)) return;
+    scheduleHide();
+  });
+
+  function fetchDetail(id) {
+    if (detailCache.has(id)) return Promise.resolve(detailCache.get(id));
+    if (detailInflight.has(id)) return detailInflight.get(id);
+    const p = axios.get(`/tv/show/${id}`).then(r => {
+      const d = r.data.show;
+      detailCache.set(id, d);
+      detailInflight.delete(id);
+      // Warm the browser cache so the full-res poster is (mostly) downloaded
+      // by the time the popover opens.
+      if (d.poster) new Image().src = posterOriginal(d.poster);
+      return d;
+    }).catch(e => { detailInflight.delete(id); throw e; });
+    detailInflight.set(id, p);
+    return p;
+  }
+
+  function prefetchDetail(id) {
+    if (!id || id === 'None') return;
+    fetchDetail(id).catch(() => {}); // best-effort; errors surface on show
+  }
+
+  function showPopoverFor(card) {
+    const id = card.dataset.tvmazeId;
+    if (!id || id === 'None') return;
+    fetchDetail(id).then(d => {
+      // Only render if the mouse is still on this card — the fetch (possibly
+      // a live TVMaze round trip) can outlast the hover.
+      if (hoverCard === card) renderPopover(card, d);
+    }).catch(console.error);
+  }
+
+  // The DB stores TVMaze's "medium" poster (210x295) — too small for the big
+  // popover. The full-res "original" (~680x1000) lives at the same URL with
+  // one path segment swapped; the img falls back to medium via onerror.
+  function posterOriginal(url) {
+    if (!url) return DEFAULT_POSTER;
+    return url.replace('/medium_portrait/', '/original_untouched/');
+  }
+
+  function renderPopover(card, d) {
+    const years = d.premiered
+      ? `${d.premiered.slice(0, 4)}–${d.ended ? d.ended.slice(0, 4) : ''}`
+      : '';
+    const metaLines = [
+      [years, d.status].filter(Boolean).join(' · '),
+      [d.network, d.language].filter(Boolean).join(' · '),
+      (d.genres || []).join(', '),
+    ].filter(Boolean);
+
+    popover.innerHTML = `
+      <div class="tv-popover-header">
+        <img src="${esc(posterOriginal(d.poster))}" onerror="this.onerror=null;this.src='${esc(d.poster || DEFAULT_POSTER)}'" alt="poster" class="tv-popover-poster" loading="lazy" />
+        <div class="tv-popover-meta">
+          <div class="tv-popover-name">${esc(d.name)}</div>
+          ${metaLines.map(l => `<div class="muted">${esc(l)}</div>`).join('')}
+          <div>
+            <span class="score-badge ${scoreClass(d.score)}">${d.score ? '&#9733; ' + esc(d.score) : '?'}</span>
+            ${d.follow_status === 'following' ? '<span class="status-tag tag-watched">Following</span>' : ''}
+          </div>
+        </div>
+      </div>
+      ${d.summary ? `<div class="tv-popover-summary">${esc(d.summary)}</div>` : ''}`;
+
+    popover.classList.remove('hidden');
+    // Prefer the card's right side; flip left if that overflows, then clamp
+    // into the viewport. .hidden is opacity-based, so offsetWidth/Height are
+    // measurable before the popover becomes visible.
+    const rect = card.getBoundingClientRect();
+    let left = rect.right + 8;
+    if (left + popover.offsetWidth > window.innerWidth - 8) {
+      left = rect.left - popover.offsetWidth - 8;
+    }
+    left = Math.max(8, left);
+    let top = Math.min(rect.top, window.innerHeight - popover.offsetHeight - 8);
+    top = Math.max(8, top);
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+  }
+</script>
+</body>
+</html>

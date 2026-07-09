@@ -26,6 +26,7 @@
     {% endif %}
   </form>
   <div class="navbar-actions">
+    <a class="btn btn-ghost" href="/tv">TV</a>
     <button class="btn btn-primary" onclick="crawlrargb()">&#8595; Crawl</button>
     <button class="btn btn-ghost" onclick="deduplicate()">&#9851; Deduplicate</button>
     {% if finetunable %}
@@ -33,8 +34,13 @@
       &#9889; Train <span class="badge">{{ trainable_count }}</span>
     </button>
     {% endif %}
+    <button class="btn btn-ghost bell-btn" onclick="toggleNotifications()">
+      &#128276; <span id="notif-badge" class="badge hidden">0</span>
+    </button>
   </div>
 </nav>
+
+<div id="notif-panel" class="notif-panel hidden"></div>
 
 <main class="main">
   <div class="table-wrapper">
@@ -238,6 +244,46 @@
       setTimeout(() => { t.classList.add('hidden'); resolve(); }, duration);
     });
   }
+
+  // Notification messages embed TVMaze show names (user-submitted upstream) —
+  // escape before interpolating into innerHTML.
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function loadNotifications() {
+    axios.get('/tv/notifications').then(r => {
+      const list = r.data.notifications || [];
+      const badge = document.getElementById('notif-badge');
+      badge.textContent = list.length;
+      badge.classList.toggle('hidden', list.length === 0);
+
+      const panel = document.getElementById('notif-panel');
+      panel.innerHTML = list.length
+        ? list.map(n => `
+            <div class="notif-item">
+              <span>${esc(n.message)}</span>
+              <button class="action-btn btn-watch" onclick="readNotification(${Number(n.id)})">Dismiss</button>
+            </div>`).join('')
+        : '<div class="notif-item muted">No new episodes.</div>';
+    }).catch(console.error);
+  }
+
+  function readNotification(id) {
+    axios.post(`/tv/notifications/${id}/read`).then(loadNotifications).catch(console.error);
+  }
+
+  function toggleNotifications() {
+    const panel = document.getElementById('notif-panel');
+    panel.classList.toggle('hidden');
+  }
+
+  loadNotifications();
+  // Keep the bell fresh on long-open tabs — the 6-hour background crawl
+  // writes notifications this would otherwise never show until a refresh.
+  setInterval(loadNotifications, 5 * 60 * 1000);
 </script>
 </body>
 </html>

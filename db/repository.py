@@ -1,5 +1,13 @@
 from typing import Generic, TypeVar, List, ClassVar, get_args
-from db_model import Collected, Config, Movie, DbModel
+from db_model import (
+    Collected,
+    Config,
+    Movie,
+    DbModel,
+    TvShow,
+    TvNotification,
+    TvScheduleEntry,
+)
 from db.db import db
 import logging
 
@@ -22,7 +30,7 @@ class BaseRepository(Generic[T]):
 
     def find_one(self, id: int) -> T:
         sql = f"SELECT * FROM {self.table_name} WHERE id = ?"
-        logger.info(f"[v] Executing query: {sql}")
+        logger.debug(f"[v] Executing query: {sql}")
         db.cur.execute(sql, (id,))
         row = db.cur.fetchone()
         if not row:
@@ -34,7 +42,7 @@ class BaseRepository(Generic[T]):
     def getMany(self) -> List[T]:
         sql = f"SELECT * FROM {self.table_name}"
         db.cur.execute(sql)
-        logger.info(f"[v] Executing query: {sql}")
+        logger.debug(f"[v] Executing query: {sql}")
         rows = db.cur.fetchall()
         columns = [col[0] for col in db.cur.description]
         return [self.model_class(**dict(zip(columns, row))) for row in rows]
@@ -47,7 +55,7 @@ class BaseRepository(Generic[T]):
         set_clause = ", ".join([f"{k} = ?" for k in fields])
 
         sql = f"UPDATE {self.table_name} SET {set_clause} WHERE id = ?"
-        logger.info(f"[v] Executing: {sql}, {values}")
+        logger.debug(f"[v] Executing: {sql}, {values}")
         db.cur.execute(sql, values)
         db.conn.commit()
         return True
@@ -59,7 +67,7 @@ class BaseRepository(Generic[T]):
         sql = f"INSERT INTO {self.table_name} ({keys}) VALUES ({placeholders})"
         db.cur.execute(sql, list(dump.values()))
         db.conn.commit()
-        logger.info(f"[v] Executing query: {sql}")
+        logger.debug(f"[v] Executing query: {sql}")
         return db.cur.lastrowid
 
     def delete(self, id: int | None) -> bool:
@@ -67,13 +75,13 @@ class BaseRepository(Generic[T]):
             raise Exception(f"Deleting canceled: id of {self.table_name} is None.")
         sql = f"DELETE FROM {self.table_name} WHERE id = ?"
         db.cur.execute(sql, (id,))
-        logger.info(f"[v] Executing query: {sql} | id={id}")
+        logger.debug(f"[v] Executing query: {sql} | id={id}")
         db.conn.commit()
         return True
 
     def execute_sql(self, sql: str, params: tuple = ()) -> List[T]:
         db.cur.execute(sql, params)
-        logger.info(f"[v] Executing: {sql} | params={params}")
+        logger.debug(f"[v] Executing: {sql} | params={params}")
         rows = db.cur.fetchall()
         if rows and len(rows) > 0:
             columns = [col[0] for col in db.cur.description]
@@ -103,6 +111,53 @@ class MovieRepository(BaseRepository[Movie]):
         sql = "SELECT 1 FROM movies WHERE url = ? LIMIT 1"
         db.cur.execute(sql, (url,))
         return db.cur.fetchone() is not None
+
+
+class TvShowRepository(BaseRepository[TvShow]):
+    def find_by_tvmaze_id(self, tvmaze_id: int) -> TvShow | None:
+        sql = "SELECT * FROM tv_shows WHERE tvmaze_id = ? LIMIT 1"
+        db.cur.execute(sql, (tvmaze_id,))
+        row = db.cur.fetchone()
+        if not row:
+            return None
+        columns = [col[0] for col in db.cur.description]
+        return TvShow(**dict(zip(columns, row)))
+
+
+class TvNotificationRepository(BaseRepository[TvNotification]): ...
+
+
+class TvScheduleRepository(BaseRepository[TvScheduleEntry]):
+    def find_by_date_and_tvmaze(self, day: str, tvmaze_id: int) -> TvScheduleEntry | None:
+        sql = "SELECT * FROM tv_schedule WHERE date = ? AND tvmaze_id = ? LIMIT 1"
+        db.cur.execute(sql, (day, tvmaze_id))
+        row = db.cur.fetchone()
+        if not row:
+            return None
+        columns = [col[0] for col in db.cur.description]
+        return TvScheduleEntry(**dict(zip(columns, row)))
+
+    def get_by_date(self, day: str, limit: int, offset: int) -> List[TvScheduleEntry]:
+        # Followed shows sort first regardless of score, so a low-scored
+        # followed show never gets pushed out of the top page by unfollowed
+        # ones — otherwise it'd silently vanish from the calendar entirely.
+        sql = (
+            "SELECT ts.* FROM tv_schedule ts "
+            "LEFT JOIN tv_shows sh ON sh.tvmaze_id = ts.tvmaze_id "
+            "WHERE ts.date = ? "
+            "ORDER BY CASE WHEN sh.follow_status = 'following' THEN 0 ELSE 1 END ASC, "
+            "(ts.score IS NULL OR ts.score = '') ASC, CAST(ts.score AS REAL) DESC "
+            "LIMIT ? OFFSET ?"
+        )
+        return self.execute_sql(sql, (day, limit, offset))
+
+    def count_by_date(self, day: str) -> int:
+        return self.count("date = ?", (day,))
+
+    def delete_before(self, day: str):
+        sql = "DELETE FROM tv_schedule WHERE date < ?"
+        db.cur.execute(sql, (day,))
+        db.conn.commit()
 
 
 if __name__ == "__main__":

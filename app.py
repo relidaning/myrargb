@@ -1,5 +1,6 @@
 import logging
 import os
+from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
@@ -7,32 +8,47 @@ from flask_cors import CORS
 
 from db.repository import MovieRepository
 from db.service import MovieService
+from db.tv_service import TvService
 from db_model import Movie
 from model.model import model
 from db.service import _bloom
 from utils.kafka_utils import ConsumerUtil
 from workflow import Workflow
-from threading import Thread
-from handler import handle_crawl_rargb, handle_predict, handle_crawl_imdb
+from threading import Event, Thread
+from handler import (
+    handle_crawl_rargb,
+    handle_predict,
+    handle_crawl_imdb,
+    handle_crawl_tvmaze,
+)
 import time
+
+TVMAZE_POLL_INTERVAL_SECONDS = 6 * 60 * 60
 
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 logger_level = "DEBUG" if DEBUG else os.getenv("LOGGER_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=logger_level,
     format="%(asctime)s [%(levelname)s] %(name)s.%(funcName)s:%(lineno)s: %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("app.log")],
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler("app.log", maxBytes=10 * 1024 * 1024, backupCount=3),
+    ],
 )
 
 load_dotenv()
 
 app = Flask(__name__)
+# Without this, Jinja caches templates when debug is off — bind-mounted
+# template edits (docker-compose.override.yml) wouldn't show until restart.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 CORS(app)  # 允许跨域请求
 logger = logging.getLogger(__name__)
 
 service = MovieService()
 movieRepository = MovieRepository()
+tv_service = TvService()
 
 
 @app.route("/", methods=["GET"])
@@ -188,6 +204,121 @@ def deduplicate():
     )
 
 
+@app.route("/tv", methods=["GET"])
+def tv_index():
+    from datetime import date, timedelta
+    from utils.pager_utils import page_offset, has_next_page, total_pages, page_range, PER_PAGE
+
+    tab = request.args.get("tab", "calendar", type=str)
+    if tab not in ("calendar", "following", "abandoned"):
+        tab = "calendar"
+
+    if tab == "calendar":
+        start_str = request.args.get("start", "", type=str)
+        try:
+            requested = date.fromisoformat(start_str) if start_str else date.today()
+        except ValueError:
+            requested = date.today()
+        # Snap to the Sunday on/before the requested date, so columns always
+        # read as a real week (Sun, Mon, Tue, ...) instead of a rolling
+        # window that starts on whatever weekday "today" happens to be.
+        start_date = requested - timedelta(days=(requested.weekday() + 1) % 7)
+        calendar_days = tv_service.get_calendar(start_date)
+        for day in calendar_days:
+            day["weekday"] = date.fromisoformat(day["date"]).strftime("%a")
+        return render_template(
+            "tv.html",
+            tab=tab,
+            calendar_days=calendar_days,
+            prev_start=(start_date - timedelta(days=7)).isoformat(),
+            next_start=(start_date + timedelta(days=7)).isoformat(),
+            today=date.today().isoformat(),
+        )
+
+    page = request.args.get("page", 1, type=int)
+    offset = page_offset(page)
+    shows = tv_service.get_items(tab, limit=PER_PAGE, offset=offset)
+    total = tv_service.count_items(tab)
+    pages = page_range(page, total_pages(total))
+
+    return render_template(
+        "tv.html",
+        tab=tab,
+        items=shows,
+        page=page,
+        has_next=has_next_page(total, page),
+        total_pages=total_pages(total),
+        pages=pages,
+    )
+
+
+@app.route("/tv/day/<date_str>", methods=["GET"])
+def tv_day(date_str):
+    offset = request.args.get("offset", 0, type=int)
+    limit = request.args.get("limit", 10, type=int)
+    shows = tv_service.get_day_shows(date_str, offset=offset, limit=limit)
+    return jsonify({"status": "success", "shows": shows})
+
+
+@app.route("/tv/show/<int:tvmaze_id>", methods=["GET"])
+def tv_show_detail(tvmaze_id):
+    detail = tv_service.get_show_detail(tvmaze_id)
+    if detail is None:
+        return jsonify({"status": "error", "message": f"Show {tvmaze_id} not found."}), 404
+    return jsonify({"status": "success", "show": detail})
+
+
+@app.route("/tv/search", methods=["GET"])
+def tv_search():
+    q = request.args.get("q", "", type=str).strip()
+    if not q:
+        return jsonify({"status": "success", "results": []})
+    results = tv_service.search_shows(q)
+    return jsonify({"status": "success", "results": results})
+
+
+@app.route("/tv/<int:item_id>/follow", methods=["GET"])
+def follow_tv(item_id):
+    tv_service.follow(item_id)
+    return jsonify({"status": "success", "message": f"TV show {item_id} followed."})
+
+
+@app.route("/tv/<int:item_id>/abandon", methods=["GET"])
+def abandon_tv(item_id):
+    tv_service.abandon(item_id)
+    return jsonify({"status": "success", "message": f"TV show {item_id} abandoned."})
+
+
+@app.route("/tv/tvmaze/<int:tvmaze_id>/follow", methods=["POST"])
+def follow_tv_by_tvmaze(tvmaze_id):
+    try:
+        tv = tv_service.follow_by_tvmaze_id(tvmaze_id)
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 404
+    return jsonify({"status": "success", "message": f"{tv.name} followed.", "id": tv.id})
+
+
+@app.route("/tv/notifications", methods=["GET"])
+def tv_notifications():
+    notifications = tv_service.get_unread_notifications()
+    return jsonify(
+        {"status": "success", "notifications": [n.model_dump() for n in notifications]}
+    )
+
+
+@app.route("/tv/notifications/<int:notification_id>/read", methods=["POST"])
+def read_tv_notification(notification_id):
+    tv_service.mark_notification_read(notification_id)
+    return jsonify({"status": "success", "message": f"Notification {notification_id} marked read."})
+
+
+@app.route("/crawl_tvmaze", methods=["GET"])
+def crawl_tvmaze():
+    if not tv_service.trigger_crawl():
+        return jsonify({"status": "error", "message": "Kafka is unreachable."}), 503
+    return jsonify({"status": "success", "message": "TVMaze crawl scheduled."})
+
+
 if __name__ == "__main__":
     util = ConsumerUtil()
     Thread(
@@ -219,4 +350,29 @@ if __name__ == "__main__":
         },
         daemon=True,
     ).start()
+
+    Thread(
+        target=util.spawn,
+        kwargs={
+            "group_id": "xyz.lidaning.myrargb.consumers.crawl_tvmaze",
+            "topics": ["xyz.lidaning.myrargb.topics.crawl_tvmaze"],
+            "callback": handle_crawl_tvmaze,
+        },
+        daemon=True,
+    ).start()
+
+    def _tvmaze_poll_loop():
+        """TVMaze has no push mechanism, so periodically trigger a rescan
+        instead of waiting for a manual /crawl_tvmaze call."""
+        stop_event = Event()
+        while not stop_event.is_set():
+            try:
+                if not tv_service.trigger_crawl():
+                    logger.warning("[!] Kafka unreachable, skipping scheduled TVMaze poll.")
+            except Exception:
+                logger.exception("[x] Scheduled TVMaze poll failed to produce")
+            stop_event.wait(TVMAZE_POLL_INTERVAL_SECONDS)
+
+    Thread(target=_tvmaze_poll_loop, daemon=True).start()
+
     app.run(host="0.0.0.0", port=5000, debug=DEBUG)

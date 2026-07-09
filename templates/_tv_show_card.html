@@ -1,0 +1,27 @@
+<div class="calendar-show-card{% if s.follow_status == 'following' %} following{% endif %}" data-tvmaze-id="{{ s.tvmaze_id }}">
+  <img
+    src="{{ s.poster if s.poster else url_for('static', filename='images/default.jpg') }}"
+    alt="poster" class="calendar-show-poster" loading="lazy"
+  />
+  <div class="calendar-show-body">
+    <div class="calendar-show-name">{{ s.name }}{% if s.episode_code %} <span class="muted">{{ s.episode_code }}</span>{% endif %}</div>
+    {% if s.genres or s.language %}
+      <div class="calendar-show-genres muted">
+        {{ s.genres | join(', ') }}{% if s.genres and s.language %} · {% endif %}{{ s.language or '' }}
+      </div>
+    {% endif %}
+    <div class="calendar-show-footer">
+      {% if s.score %}
+        {% set sc = s.score | float %}
+        <span class="score-badge {% if sc >= 7 %}score-high{% elif sc >= 5 %}score-mid{% else %}score-low{% endif %}">&#9733; {{ s.score }}</span>
+      {% else %}
+        <span class="score-badge score-pending">?</span>
+      {% endif %}
+      {% if s.follow_status == 'following' %}
+        <button class="action-btn btn-drop" onclick="abandonTv({{ s.id }})">Unfollow</button>
+      {% else %}
+        <button class="action-btn btn-watch" onclick="followTvmaze({{ s.tvmaze_id }}, this)">Follow</button>
+      {% endif %}
+    </div>
+  </div>
+</div>

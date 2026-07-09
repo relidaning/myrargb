@@ -37,6 +37,15 @@ body {
   height: 52px;
 }
 
+/* Two stacked navbars (tv.html): the search bar lives in the top one, so it
+   needs a higher stacking context than the tabs bar below it, and the tabs
+   bar must stick just under it — not both at top:0, which would overlap. */
+.navbar-top { z-index: 110; }
+.navbar-tabs {
+  top: 52px;
+  border-top: 1px solid var(--border);
+}
+
 .navbar-brand {
   font-size: 17px;
   font-weight: 700;
@@ -111,6 +120,200 @@ body {
   padding: 1px 6px;
   font-size: 11px;
   font-weight: 600;
+}
+
+.bell-btn { position: relative; }
+.bell-btn .badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--red, #f87171);
+  color: #fff;
+}
+
+.tabs { display: flex; gap: 4px; }
+.tab {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.tab:hover { background: var(--surface2); }
+.tab-active { background: var(--surface2); color: var(--text); font-weight: 600; }
+
+.notif-panel {
+  position: absolute;
+  top: 54px;
+  right: 24px;
+  width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--surface, #1a1a1a);
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 10px;
+  padding: 8px;
+  z-index: 20;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.notif-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.notif-item:last-child { border-bottom: none; }
+
+/* ── TV search ────────────────────────────────────────── */
+.search-bar { position: relative; }
+
+.search-dropdown {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  width: 100%;
+  min-width: 340px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.search-result-item:hover { background: var(--surface2); }
+.search-result-poster { width: 34px; height: 48px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+.search-result-body { flex: 1; min-width: 0; }
+
+/* ── TV calendar ──────────────────────────────────────── */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  /* Below ~900px, 7 equal columns get too narrow to read — scroll instead. */
+  .calendar-grid {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 12px;
+  }
+  .calendar-day { flex: 0 0 220px; }
+}
+
+.calendar-day {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+.calendar-day-today { border-color: var(--accent); }
+
+.calendar-day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.calendar-day-weekday { font-weight: 700; }
+.calendar-day-today .calendar-day-weekday { color: var(--accent); }
+
+.calendar-empty { font-size: 12px; padding: 8px 0; }
+
+.calendar-more-btn {
+  width: 100%;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.calendar-show-card {
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.calendar-show-card:last-child { border-bottom: none; }
+
+.calendar-show-card.following,
+.search-result-item.following {
+  background: rgba(34,197,94,0.1);
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+.calendar-show-poster { width: 40px; height: 56px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+.calendar-show-body { flex: 1; min-width: 0; }
+.calendar-show-name { font-size: 13px; font-weight: 600; }
+.calendar-show-genres { font-size: 11px; margin-top: 2px; }
+.calendar-show-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ── TV detail popover ────────────────────────────────── */
+.tv-popover {
+  position: fixed;
+  width: 760px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  z-index: 200;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  transition: opacity 0.15s ease;
+}
+.tv-popover-header { display: flex; gap: 18px; }
+.tv-popover-poster {
+  /* Sourced from TVMaze "original" (~680x1000) — sharp at this size. */
+  width: 300px;
+  height: 421px;
+  object-fit: cover;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.tv-popover-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  min-width: 0;
+}
+.tv-popover-name { font-size: 20px; font-weight: 700; }
+.tv-popover-summary {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 /* ── Main layout ─────────────────────────────────────── */

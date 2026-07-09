@@ -41,3 +41,46 @@ class Collected(DbModel):
 class Config(DbModel):
     key: str | None = None
     value: str | None = None
+
+
+@table("tv_shows")
+class TvShow(DbModel):
+    tvmaze_id: int | None = None
+    name: str | None = None
+    premiered: str | None = None
+    ended: str | None = None
+    status: str | None = None
+    score: str | None = None
+    genres: str | None = None
+    poster: str | None = None
+    summary: str | None = None
+    network: str | None = None
+    language: str | None = None
+    follow_status: str | None = None
+    next_episode_id: int | None = None
+    updated_at: str | None = None
+
+
+@table("tv_notifications")
+class TvNotification(DbModel):
+    tv_show_id: int | None = None
+    message: str | None = None
+    episode_code: str | None = None
+    airdate: str | None = None
+    read_flag: str | None = None
+    created_at: str | None = None
+
+
+@table("tv_schedule")
+class TvScheduleEntry(DbModel):
+    date: str | None = None
+    tvmaze_id: int | None = None
+    name: str | None = None
+    poster: str | None = None
+    score: str | None = None
+    genres: str | None = None
+    network: str | None = None
+    language: str | None = None
+    episode_code: str | None = None
+    airdate: str | None = None
+    updated_at: str | None = None
