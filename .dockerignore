@@ -12,6 +12,10 @@
 __pycache__/
 *.pyc
 
+# data/ is volume-mounted at runtime; baking it in only bloats the image
+# (SQLite DB, Kafka broker files, model checkpoint).
+data/
+*.log
 logs/
 .tmp/
 .DS_Store

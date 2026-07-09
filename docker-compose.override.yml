@@ -1,0 +1,28 @@
+# Auto-loaded by `docker compose up` alongside docker-compose.yml.
+#
+# Bind-mounts the source into the container so code changes go live without
+# an image rebuild:
+#   - templates/ + static/  → just refresh the browser
+#   - *.py                  → docker compose restart myrargb
+#
+# The venv baked into the image (/app/.venv) is untouched — only source dirs
+# are shadowed, so dependency changes (pyproject.toml/uv.lock) still need a
+# real rebuild: docker compose up -d --build myrargb
+#
+# To run from the pristine image (ignore these mounts):
+#   docker compose -f docker-compose.yml up -d
+services:
+  myrargb:
+    volumes:
+      - ./app.py:/app/app.py
+      - ./handler.py:/app/handler.py
+      - ./crawler.py:/app/crawler.py
+      - ./tv_crawler.py:/app/tv_crawler.py
+      - ./workflow.py:/app/workflow.py
+      - ./db:/app/db
+      - ./db_model:/app/db_model
+      - ./model:/app/model
+      - ./utils:/app/utils
+      - ./browserdriver:/app/browserdriver
+      - ./templates:/app/templates
+      - ./static:/app/static

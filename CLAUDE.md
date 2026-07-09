@@ -11,11 +11,15 @@ docker compose up --build        # Full stack: app + Kafka + Kafka UI
 ./send_msg_to_kafka.sh           # Trigger incremental crawl via HTTP
 ```
 
+**Dev workflow**: `docker-compose.override.yml` (auto-loaded) bind-mounts all source, templates, and static files into the container. Template/CSS/JS edits go live on browser refresh (`TEMPLATES_AUTO_RELOAD` is set in `app.py`); Python edits need `docker compose restart myrargb`; only dependency changes (`pyproject.toml`/`uv.lock`) need `--build`. `.dockerignore` excludes `data/` and `*.log` from the image — don't remove those entries; `app.log` once ballooned the image by 267MB.
+
 ## Architecture
 
-Flask web app that crawls rargb.to `/movies/` for movie torrents, extracts clean titles with a fine-tuned T5-small model, and enriches metadata from IMDb.
+Flask web app with two independent verticals sharing one process/DB:
+1. Crawls rargb.to `/movies/` for movie torrents, extracts clean titles with a fine-tuned T5-small model, and enriches metadata from IMDb.
+2. Tracks TV show premieres/schedules via the TVMaze API (plain `requests`, no key or browser needed) so users can browse a calendar, search, follow shows, and get notified of new episodes.
 
-**Pipeline (Kafka-driven, no keyword threading):**
+**Movie pipeline (Kafka-driven, no keyword threading):**
 ```
 Kafka: crawl_rargb trigger (empty payload)
   → browse rargb.to/movies/ page by page (newest-first, Playwright)
@@ -25,6 +29,16 @@ Kafka: crawl_rargb trigger (empty payload)
   → Bloom-filter dedup on predicted title
   → produce {movie} to crawl_imdb topic
   → IMDb search by title + year → store poster, score
+```
+
+**TV pipeline (Kafka-driven, periodic poll since TVMaze has no push mechanism):**
+```
+Kafka: crawl_tvmaze trigger (empty payload; also fired every 6h by a background thread)
+  → crawl_schedule(): pull TVMaze TV + web schedules for [-7, +14] days
+    → upsert into tv_schedule cache table (the calendar reads only from this cache)
+    → prune entries older than 7 days
+  → check_followed_episodes(): poll each followed show's next-episode
+    → notify (tv_notifications row) only if the next-episode id changed since last check
 ```
 
 ## Key Concepts
@@ -72,9 +86,22 @@ Two layers:
 
 - `service.py`: `_bloom` (BloomUtils) and `_producer` (ProducerUtil) are module-level singletons — never instantiate per-request or per-message.
 - `service.py`: `ImdbCrawler` is a lazy singleton — `_imdb_crawler = None` at module level, initialized on first use by `_get_imdb_crawler()`; driver created in `__init__` and reused across `crawl()` calls.
-- `handler.py`: `_service` (MovieService) is a module-level singleton — not re-instantiated per Kafka message.
+- `handler.py`: `_service` (MovieService) and `_tv_service` (TvService) are module-level singletons — not re-instantiated per Kafka message.
+- `db/tv_service.py`: has its own module-level `_producer` (ProducerUtil) — a second instance, deliberately not shared with `db/service.py`'s to avoid the import coupling.
 - `RargbCrawler` is instantiated once per crawl invocation, outside the page loop (not per page), and **must be closed**: `crawl_rargb()` in `db/service.py` wraps the page loop in `try/finally: crawler.close()`. `RargbCrawler.close()` and a no-op default `BrowserDriver.close()` on the ABC were added after a prior OOM incident — see [Known open issues](#known-open-issues) and browser cleanup note below.
 - `PlaywrightDriver` creates the browser and context once in `__init__` and reuses them across all `fetch()` calls — stealth scripts and browser args are module-level constants, not per-request setup. Unlike `SeleniumBrowerDriver`/`UndetectedChromeBrowserDriver` (which clean up via `__del__` → `driver.quit()`), `PlaywrightDriver` has no destructor — its Chromium subprocess only ever closes via an explicit `close()` call, so any new code path that creates a `RargbCrawler`/`PlaywrightDriver` must close it (`ImdbCrawler`'s browser is the one intentional exception — it's a lazy singleton meant to stay open for the app's lifetime).
+
+### TV show feature (TVMaze)
+
+- **Cache-backed calendar, not live-fetch-per-pageload**: an earlier version of `/tv` called the TVMaze API live on every page load (7 days × 2 endpoints), taking several seconds. Now `TvService.crawl_schedule()` populates a `tv_schedule` cache table (window: 7 days back, 14 days forward; pruned on every crawl) via the periodic background thread and `/crawl_tvmaze`, and `/tv` only ever reads from SQLite — page load is ~10-20ms. Any new calendar-like view should read from a cache table populated by a scheduled job, not call TVMaze inline in the request path.
+- **Calendar week alignment**: `/tv` snaps the requested `start` date back to the preceding Sunday (`requested - timedelta(days=(requested.weekday()+1)%7)`) so the 7 columns always read Sun→Sat as a real week, not a rolling 7-day window starting on an arbitrary weekday.
+- **Followed shows sort first, regardless of score**: `TvScheduleRepository.get_by_date()` only returns the top N (page_size) rows per day for performance, ordered by score — a followed show with a low/missing score would silently be excluded from that page entirely (not a highlighting bug, an exclusion bug). Fixed by a `LEFT JOIN tv_shows` that orders `follow_status = 'following'` first, then by score, so a followed show always lands on the visible page; "Load more" pagination (`GET /tv/day/<date>`) stays consistent since it's one ordering, not a separate merge.
+- **`_baseline_next_episode()` on follow**: recording the show's current `next_episode_id` at follow time (without notifying) prevents `check_followed_episodes()` from firing a spurious notification on the very first poll for an episode the user already knew about when they followed.
+- **Jinja renders Python `None` as the literal string `"None"`**: hit when `tv_shows`/`tv_schedule` rows created before the `language` column existed had `language = NULL` — templates must guard (`{% if s.language %}`) rather than interpolate directly.
+- **Testing lesson**: verifying the follow-priority fix by calling `POST /tv/tvmaze/<id>/follow` directly against the live running container actually mutated real app state (a real show got followed and had to be manually deleted). State-changing verification (follow/abandon/etc.) must go through a local dev DB or an isolated smoke-test script — never the live container's endpoints.
+- **Hover detail popover**: hovering anything with `data-tvmaze-id` for 1s opens a detail popover (`tv.html`). `GET /tv/show/<tvmaze_id>` → `TvService.get_show_detail()` serves from `tv_shows`, fetching from TVMaze and upserting on a miss (calendar/search entries usually aren't cached yet). Caveat: a cached row only refetches when `summary` is NULL, so score/status go stale — no TTL yet. Frontend prefetches detail + full-res poster at hover start (the 1s timer only gates visibility); the full-res poster URL is derived client-side by swapping `/medium_portrait/` → `/original_untouched/` (with `onerror` fallback), not stored.
+- **XSS rule for innerHTML**: TVMaze data (show names, genres, networks, notification messages) is user-submitted upstream. Any JS that interpolates it into `innerHTML` must wrap strings in the `esc()` helper (defined in both `tv.html` and `index.html`) and numeric ids in `Number()` when placed inside `onclick` handlers. Jinja-rendered paths auto-escape; only the JS template literals need this.
+- **`crawl_tvmaze` is trigger-only from the web layer**: `GET /crawl_tvmaze` and the 6h poll thread both call `TvService.trigger_crawl()`, which produces an empty message to the `crawl_tvmaze` topic (503 if Kafka is down). The actual crawl (minutes of rate-limited TVMaze calls) runs only in the Kafka consumer — never run `crawl_schedule()` inline in a request path.
 
 ### Fine-tuning gate
 
@@ -93,13 +120,15 @@ Two layers:
 
 | File | Role |
 |---|---|
-| `app.py` | Flask entry point, 6 routes, starts 7 Kafka consumer daemon threads |
-| `handler.py` | Kafka message deserialization → `MovieService` delegation |
+| `app.py` | Flask entry point, ~20 routes (movies + TV), starts 4 Kafka consumer daemon threads (crawl_rargb/predict/crawl_imdb/crawl_tvmaze) + 1 periodic TVMaze-poll thread |
+| `handler.py` | Kafka message deserialization → `MovieService`/`TvService` delegation |
 | `db/service.py` | `MovieService`: crawl/predict/imdb orchestration, collected-range logic |
-| `db/repository.py` | `BaseRepository[T]` with generic SQLite CRUD |
+| `db/tv_service.py` | `TvService`: TVMaze calendar cache, search, follow/abandon, next-episode notification polling |
+| `db/repository.py` | `BaseRepository[T]` with generic SQLite CRUD, plus `TvShowRepository`/`TvNotificationRepository`/`TvScheduleRepository` |
 | `db/db.py` | Singleton `MyRargbDB`, table creation, column migrations |
-| `db_model/__init__.py` | Pydantic models with `@table(name)` decorator |
+| `db_model/__init__.py` | Pydantic models with `@table(name)` decorator, incl. `TvShow`/`TvNotification`/`TvScheduleEntry` |
 | `crawler.py` | `RargbCrawler` (Playwright → BeautifulSoup), `ImdbCrawler` (IMDb mobile) |
+| `tv_crawler.py` | `TvMazeClient` — plain `requests.Session` wrapper around TVMaze's `/schedule`, `/shows`, `/search/shows` endpoints |
 | `model/model.py` | T5-small wrapper (HuggingFace), fine-tuning on `filename → title_accurate` |
 | `browserdriver/driver.py` | `PlaywrightDriver` with stealth scripts (default), `SeleniumBrowerDriver`, `UndetectedChromeBrowserDriver` |
 | `workflow.py` | `Workflow` enum for query filtering (TRAINING/PREDICT/SCORING/QUERYING/DEDUPLICATION) |
@@ -113,12 +142,15 @@ SQLite at `./data/myrargb.db`. Key tables:
 - **movies** — `id, filename, size, title, url, score, genre, poster, marked, title_accurate, trained_flag, added, year`
 - **collected** — `id, start, end` (date range of crawled items, used for incremental resume)
 - **config** — `id, key, value` (currently unused; formerly held watermark)
+- **tv_shows** — `id, tvmaze_id (unique), name, premiered, ended, status, score, genres, poster, summary, network, language, follow_status, next_episode_id, updated_at`. `follow_status` is `null`/`following`/`abandoned`; `next_episode_id` is the TVMaze episode id last seen, used to detect a new episode for notifications.
+- **tv_notifications** — `id, tv_show_id, message, episode_code, airdate, read_flag, created_at`
+- **tv_schedule** — `id, date, tvmaze_id, name, poster, score, genres, network, language, episode_code, airdate, updated_at` (unique on `date, tvmaze_id`). Cache table for the calendar view, populated by `TvService.crawl_schedule()`; window is 7 days back / 14 forward, pruned on every crawl.
 
 Model fine-tuning checkpoint at `./data/my_finetuned_t5/`.
 
 ## Infrastructure
 
-Docker Compose: app (Playwright image), Kafka (KRaft mode), Kafka UI (`:9090`). Kafka topics: `xyz.lidaning.myrargb.topics.crawl_rargb`, `.predict`, `.crawl_imdb`. Consumer groups: `xyz.lidaning.myrargb.consumers.*`.
+Docker Compose: app (Playwright image), Kafka (KRaft mode), Kafka UI (`:9090`). Kafka topics: `xyz.lidaning.myrargb.topics.crawl_rargb`, `.predict`, `.crawl_imdb`, `.crawl_tvmaze`. Consumer groups: `xyz.lidaning.myrargb.consumers.*`. Since TVMaze has no push mechanism, a background daemon thread in `app.py` produces an empty `crawl_tvmaze` message every `TVMAZE_POLL_INTERVAL_SECONDS` (6h) in addition to the manual `/crawl_tvmaze` trigger.
 
 `ProducerUtil._available_cache` is reset to `None` on `KafkaException` in `produce()` — if Kafka is temporarily down at startup, recovery is detected automatically on the next produce call without a restart.
 
@@ -127,3 +159,7 @@ Docker Compose: app (Playwright image), Kafka (KRaft mode), Kafka UI (`:9090`). 
 **Memory / allocator**: `MALLOC_ARENA_MAX=2` is set in `docker-compose.yml` for the app container. Without it, glibc's per-thread malloc arenas (7 consumer threads + Flask) retain freed heap instead of returning it to the OS — after the 2026-07-02 backlog drain, RSS plateaued at ~4 GiB even though idle sampling showed no active leak (the `soup.decompose()` fix had stopped real growth). Judge memory health by whether RSS is flat at idle, not by whether it drops back to the ~1 GiB startup baseline.
 
 **Proxy**: `HTTP_PROXY` / `HTTPS_PROXY` are set to `http://172.17.0.1:10808` (host machine via Docker bridge) so the container can reach rargb.to and IMDb. Without a working proxy at that address, crawling will fail silently.
+
+**SQLite pragmas**: every connection sets `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`. NORMAL (not FULL) matters because repositories commit per row — under FULL, a schedule crawl paid one fsync per episode. Safe under WAL: an OS crash can lose the last transactions but never corrupts.
+
+**Logging**: `LOGGER_LEVEL` env (compose sets `ERROR`) controls the root level; `DEBUG=true` overrides to DEBUG. `app.log` uses a `RotatingFileHandler` (10MB × 3 backups). Per-row SQL logging in `db/repository.py` is at DEBUG — keep it there; at INFO a single crawl once grew `app.log` to 267MB.
