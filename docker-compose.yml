@@ -19,6 +19,8 @@ services:
     volumes:
       - ./data:/app/data
     runtime: nvidia
+    # Come back after a host reboot or crash; `docker compose stop` still sticks.
+    restart: unless-stopped
     depends_on:
       - kafka
       
@@ -44,6 +46,7 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 3
       TZ: Asia/Shanghai
+    restart: unless-stopped
 
 
   kafka-ui:
