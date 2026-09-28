@@ -1,4 +1,5 @@
 import os
+import threading
 from datasets import Dataset
 from transformers import (
     AutoTokenizer,
@@ -24,6 +25,10 @@ class MyRargbModel:
     ):
         self.model_name = model_name
         self.local_model_path = local_model_path
+        # train() (Flask request thread) and predict() (Kafka consumer thread)
+        # share self.model; without this, generate() can run on weights that
+        # are mid-update.
+        self._lock = threading.Lock()
         if os.path.exists(local_model_path):
             self.tokenizer = AutoTokenizer.from_pretrained(local_model_path)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(local_model_path)
@@ -60,17 +65,20 @@ class MyRargbModel:
         if not item:
             return None
 
-        device = self.model.device
-        input = self.tokenizer(f"clean the title: {item.filename}", return_tensors="pt")
-        input = {k: v.to(device) for k, v in input.items()}
-        output = self.model.generate(
-            **input,
-            max_new_tokens=64,
-            min_new_tokens=4,
-            num_beams=4,
-            early_stopping=True,
-        )
-        title = self.tokenizer.decode(output[0], skip_special_tokens=True)
+        with self._lock:
+            device = self.model.device
+            input = self.tokenizer(
+                f"clean the title: {item.filename}", return_tensors="pt"
+            )
+            input = {k: v.to(device) for k, v in input.items()}
+            output = self.model.generate(
+                **input,
+                max_new_tokens=64,
+                min_new_tokens=4,
+                num_beams=4,
+                early_stopping=True,
+            )
+            title = self.tokenizer.decode(output[0], skip_special_tokens=True)
         logger.info(f"# Original: {item.filename} --> Predicted: {title} ")
         if not title:
             logger.info(f"x No title generated for: {item.filename}, skipping update.")
@@ -79,6 +87,10 @@ class MyRargbModel:
         return Movie(id=item.id, title=title)
 
     def train(self, items: List[Movie]):
+        with self._lock:
+            self._train(items)
+
+    def _train(self, items: List[Movie]):
         data = []
         for item in items:
             data.append(
@@ -105,6 +117,9 @@ class MyRargbModel:
             eval_strategy="epoch",
             save_strategy="epoch",
             metric_for_best_model="eval_loss",
+            # Without this, an early stop saves the last (already worse)
+            # epoch instead of the best one.
+            load_best_model_at_end=True,
             greater_is_better=False,
             save_total_limit=2,
         )
