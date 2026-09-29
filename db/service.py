@@ -263,6 +263,18 @@ class MovieService:
         self.movieRepository.update(updated_m)
 
     def predict(self, movie: Movie):
+        # Idempotency guard: a redelivered or duplicated predict message
+        # (uncommitted offset, /produce/predict while a backlog drains) would
+        # otherwise find its own title in the bloom filter and delete the row.
+        try:
+            current = self.movieRepository.find_one(movie.id)
+        except Exception:
+            logger.info(f"[-] Movie {movie.id} no longer exists, skipping predict.")
+            return
+        if current.title:
+            logger.info(f"[-] Movie {movie.id} already predicted, skipping.")
+            return
+
         predicted_m = model.predict(movie)
         if not predicted_m or not predicted_m.title:
             return
