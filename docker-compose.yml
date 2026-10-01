@@ -30,7 +30,16 @@ services:
       - "9092:9092"
       - "9093:9093"
       - "9200:9200"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
     environment:
+      # The image defaults to -Xms1G -Xmx1G, and the broker ends up holding
+      # ~1GiB RSS for a handful of messages a day. Its live heap is ~185MB
+      # (mostly the 128MB log-cleaner buffer), so 384m leaves ample headroom.
+      KAFKA_HEAP_OPTS: -Xms128m -Xmx384m
+      # Default log dir is /tmp/kafka-logs in the container's writable layer:
+      # topics and committed offsets vanish whenever the container is recreated.
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
@@ -56,4 +65,7 @@ services:
       - DYNAMIC_CONFIG_ENABLED=true
       - KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS=kafka:9092
       - TZ=Asia/Shanghai
+
+volumes:
+  kafka-data:
 
