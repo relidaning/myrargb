@@ -61,7 +61,13 @@ class ConsumerUtil:
                 data = val.decode("utf-8")
                 logger.info(f"[v] Consumer in {group_id} received: {data}")
                 callback(data)
-                consumer.commit(msg)
+                try:
+                    consumer.commit(msg)
+                except KafkaException as e:
+                    # A failed commit (broker restart, rebalance) must not end
+                    # this loop, or the consumer thread dies silently. The
+                    # message may be redelivered, as it would be after a restart.
+                    logger.warning(f"[!] Commit failed in {group_id}: {e}")
 
         except KeyboardInterrupt:
             print("stopping consumer")
