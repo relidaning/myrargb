@@ -150,7 +150,10 @@ class PlaywrightDriver(BrowserDriver):
             # AWS WAF challenge runs JS and reloads; wait for the real content
             for _ in range(5):
                 content = page.content()
-                if "challenge-container" in content or "awswaf" in content.lower():
+                # Match the challenge page only: every real IMDb page also
+                # mentions "awsWaf" (token cookie script), which used to keep
+                # this loop waiting all 5 rounds (~20s) on already-loaded pages.
+                if "challenge-container" in content or "AwsWafIntegration" in content:
                     page.wait_for_timeout(3000)
                     page.wait_for_load_state("networkidle", timeout=15000)
                 else:
