@@ -24,15 +24,29 @@ class ProducerUtil:
                 logger.warning("[!] Kafka broker unreachable, processing inline.")
         return ProducerUtil._available_cache
 
+    @staticmethod
+    def _on_delivery(err, msg):
+        if err is not None:
+            logger.error(f"[x] Kafka delivery to {msg.topic()} failed: {err}")
+
     def produce(self, topic: str, task: dict):
+        value = json.dumps(task).encode("utf-8")
         try:
-            self.producer.produce(topic, json.dumps(task).encode("utf-8"))
+            try:
+                self.producer.produce(topic, value, on_delivery=self._on_delivery)
+            except BufferError:
+                # Local queue full: serve delivery reports to free slots, retry once.
+                self.producer.poll(1)
+                self.producer.produce(topic, value, on_delivery=self._on_delivery)
+            # Serve delivery reports; librdkafka only frees a delivered message
+            # once its report is polled, so without this the queue fills up for good.
+            self.producer.poll(0)
         except KafkaException:
             ProducerUtil._available_cache = None
             raise
 
     def __del__(self):
-        self.producer.flush()
+        self.producer.flush(5)
 
 
 class ConsumerUtil:
