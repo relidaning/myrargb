@@ -1,6 +1,8 @@
 from bs4 import BeautifulSoup
 import argparse
+import re
 import time
+from urllib.parse import quote_plus
 from browserdriver.driver import DriverFactory
 import logging
 from db_model import Movie
@@ -10,6 +12,38 @@ logger = logging.getLogger(__name__)
 
 IMDB_MAX_ATTEMPTS = 3
 IMDB_RETRY_DELAY_SECONDS = 2
+
+# Release tags the T5 model often leaves in a predicted title
+# ("Rambo III.1988.1080p", "Tower Block (2012) WEBRip"). IMDb's search finds
+# nothing for such a string, so the row ends up "unmatched" for good.
+_RELEASE_TAG_RE = re.compile(
+    r"\b(2160p|1080p|720p|480p|4K|UHD|BluRay|BDRip|BRRip|BDRemux|REMUX|WEBRip|WEB-DL"
+    r"|HDTV|HDRip|DVDRip|Upscaled|x264|x265|HEVC|H264)\b",
+    re.IGNORECASE,
+)
+
+
+def clean_search_title(title: str, year: str | None = None) -> str:
+    """Reduce a predicted title to what IMDb's search can match.
+
+    Cuts at the release year and at the first release tag, then turns
+    dot/underscore separators into spaces. A cut that would leave nothing
+    (e.g. "1917", "2001 A Space Odyssey" with year 2001) is skipped.
+    """
+    s = title.strip()
+    cuts = [m.start() for m in [_RELEASE_TAG_RE.search(s)] if m]
+    if year:
+        m = re.search(rf"\b{re.escape(year)}\b", s)
+        if m:
+            cuts.append(m.start())
+    for cut in sorted(cuts):
+        head = s[:cut].strip(" .-_([{")
+        if head:
+            s = head
+            break
+    if " " not in s:
+        s = re.sub(r"[._]+", " ", s)
+    return s.strip(" .-_([{") or title.strip()
 
 
 class RargbCrawler:
@@ -87,7 +121,9 @@ class ImdbCrawler:
             logger.info(f"[x] item: {item} has no title yet.")
             return None
 
-        url = f"https://m.imdb.com/find/?q={title}&ref_=chttvtp_nv_srb_sm"
+        # Only a model-predicted title needs cleaning; a user-corrected one is searched as typed.
+        query = title if item.title_accurate else clean_search_title(title, item.year)
+        url = f"https://m.imdb.com/find/?q={quote_plus(query)}&ref_=chttvtp_nv_srb_sm"
 
         for attempt in range(1, IMDB_MAX_ATTEMPTS + 1):
             try:
