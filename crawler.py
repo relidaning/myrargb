@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 IMDB_MAX_ATTEMPTS = 3
 IMDB_RETRY_DELAY_SECONDS = 2
+# A release's filename year and IMDb's year often differ by one (festival vs
+# general release), so a candidate one year off is kept as a fallback.
+IMDB_YEAR_TOLERANCE = 1
 
 # Release tags the T5 model often leaves in a predicted title
 # ("Rambo III.1988.1080p", "Tower Block (2012) WEBRip"). IMDb's search finds
@@ -21,6 +24,15 @@ _RELEASE_TAG_RE = re.compile(
     r"|HDTV|HDRip|DVDRip|Upscaled|x264|x265|HEVC|H264)\b",
     re.IGNORECASE,
 )
+
+
+def _year_near(imdb_year: str | None, expected: str) -> bool:
+    return bool(
+        imdb_year
+        and imdb_year.isdigit()
+        and expected.isdigit()
+        and abs(int(imdb_year) - int(expected)) <= IMDB_YEAR_TOLERANCE
+    )
 
 
 def clean_search_title(title: str, year: str | None = None) -> str:
@@ -147,6 +159,7 @@ class ImdbCrawler:
                         logger.info(f"[x] IMDb returned zero results for '{title}'.")
                         break  # genuine empty result set — not worth retrying
 
+                    near = None  # first candidate within IMDB_YEAR_TOLERANCE, used if no exact year
                     for li in lis:
                         li_img = li.find("img", {"class": "ipc-image"})
                         poster = li_img["src"] if li_img else None
@@ -158,6 +171,8 @@ class ImdbCrawler:
                         year = str(li_year.string) if li_year and li_year.string else None
                         if item.year and year != item.year:
                             logger.info(f"[x] Year mismatch: IMDb={year}, expected={item.year}, trying next result.")
+                            if near is None and _year_near(year, item.year):
+                                near = Movie(id=item.id, poster=poster, title=found_title, score=score)
                             continue
 
                         return Movie(
@@ -166,6 +181,9 @@ class ImdbCrawler:
                             title=found_title,
                             score=score,
                         )
+
+                    if near:
+                        return near
 
                     logger.info(f"[x] No year-matching IMDb result for '{title}' (expected {item.year}).")
                     break  # scanned every candidate — genuine no-match, not worth retrying

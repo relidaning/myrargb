@@ -288,7 +288,10 @@ class MovieService:
 
         self.movieRepository.update(predicted_m)
         _bloom.add(predicted_m.title)
+        # model.predict() returns only id + title; send the full row so the
+        # IMDb step still has the year (and a corrected title) to match on.
+        current.title = predicted_m.title
         _producer.produce(
             "xyz.lidaning.myrargb.topics.crawl_imdb",
-            {"movie": predicted_m.model_dump()},
+            {"movie": current.model_dump()},
         )
