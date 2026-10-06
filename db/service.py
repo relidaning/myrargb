@@ -9,7 +9,7 @@ from workflow import Workflow
 from typing import List
 from crawler import ImdbCrawler, RargbCrawler
 from model.model import model
-from utils.bloom_utils import BloomUtils
+from utils.bloom_utils import BloomUtils, normalize
 
 # Module-level singletons — shared state across requests without repeated init cost.
 _bloom = BloomUtils()
@@ -279,7 +279,11 @@ class MovieService:
         if not predicted_m or not predicted_m.title:
             return
 
-        if _bloom.hasItem(predicted_m.title):
+        # The bloom filter only says "maybe seen": its false-positive rate grows
+        # as it fills, so confirm against the stored titles before deleting.
+        if _bloom.hasItem(predicted_m.title) and self._title_exists(
+            predicted_m.title, exclude_id=movie.id
+        ):
             logger.info(
                 f"[x] Duplicate title '{predicted_m.title}', removing row."
             )
@@ -295,3 +299,37 @@ class MovieService:
             "xyz.lidaning.myrargb.topics.crawl_imdb",
             {"movie": current.model_dump()},
         )
+
+    def _title_exists(self, title: str, exclude_id: int | None) -> bool:
+        """True if another row already holds this title (compared normalized)."""
+        normed = normalize(title)
+        rows = self.movieRepository.execute_sql(
+            "SELECT id, title FROM movies WHERE id != ? AND title IS NOT NULL AND title != ''",
+            (exclude_id or 0,),
+        )
+        return any(normalize(r.title) == normed for r in rows)
+
+    def deduplicate(self) -> int:
+        """Delete rows whose normalized title repeats an earlier row's; returns the count.
+
+        Compares the stored titles themselves, not the bloom filter: the filter
+        is persisted and already holds every predicted title, so asking it
+        would report each row as a duplicate of itself.
+        """
+        rows = self.movieRepository.execute_sql(
+            "SELECT id, title FROM movies WHERE title IS NOT NULL AND title != '' ORDER BY id"
+        )
+        seen = set()
+        count = 0
+        for row in rows:
+            normed = normalize(row.title)
+            if not normed:
+                continue
+            if normed in seen:
+                self.movieRepository.delete(row.id)
+                logger.info(f"Duplicate removed: {row.title}")
+                count += 1
+            else:
+                seen.add(normed)
+                _bloom.add(row.title)
+        return count
