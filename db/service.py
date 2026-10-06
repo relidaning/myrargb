@@ -256,40 +256,6 @@ class MovieService:
         logger.info(f"[v] Produced IMDb tasks for {len(items)} items.")
         return len(items)
 
-    def _title_exists(self, title: str, exclude_id: int | None) -> bool:
-        """True if another row already holds this title (compared normalized)."""
-        normed = normalize(title)
-        rows = self.movieRepository.execute_sql(
-            "SELECT id, title FROM movies WHERE id != ? AND title IS NOT NULL AND title != ''",
-            (exclude_id or 0,),
-        )
-        return any(normalize(r.title) == normed for r in rows)
-
-    def deduplicate(self) -> int:
-        """Delete rows whose normalized title repeats an earlier row's; returns the count.
-
-        Compares the stored titles themselves, not the bloom filter: the filter
-        is persisted and already holds every predicted title, so asking it
-        would report each row as a duplicate of itself.
-        """
-        rows = self.movieRepository.execute_sql(
-            "SELECT id, title FROM movies WHERE title IS NOT NULL AND title != '' ORDER BY id"
-        )
-        seen = set()
-        count = 0
-        for row in rows:
-            normed = normalize(row.title)
-            if not normed:
-                continue
-            if normed in seen:
-                self.movieRepository.delete(row.id)
-                logger.info(f"Duplicate removed: {row.title}")
-                count += 1
-            else:
-                seen.add(normed)
-                _bloom.add(row.title)
-        return count
-
     def crawl_imdb(self, m: Movie):
         updated_m = _get_imdb_crawler().crawl(m)
         if not updated_m:
@@ -333,3 +299,37 @@ class MovieService:
             "xyz.lidaning.myrargb.topics.crawl_imdb",
             {"movie": current.model_dump()},
         )
+
+    def _title_exists(self, title: str, exclude_id: int | None) -> bool:
+        """True if another row already holds this title (compared normalized)."""
+        normed = normalize(title)
+        rows = self.movieRepository.execute_sql(
+            "SELECT id, title FROM movies WHERE id != ? AND title IS NOT NULL AND title != ''",
+            (exclude_id or 0,),
+        )
+        return any(normalize(r.title) == normed for r in rows)
+
+    def deduplicate(self) -> int:
+        """Delete rows whose normalized title repeats an earlier row's; returns the count.
+
+        Compares the stored titles themselves, not the bloom filter: the filter
+        is persisted and already holds every predicted title, so asking it
+        would report each row as a duplicate of itself.
+        """
+        rows = self.movieRepository.execute_sql(
+            "SELECT id, title FROM movies WHERE title IS NOT NULL AND title != '' ORDER BY id"
+        )
+        seen = set()
+        count = 0
+        for row in rows:
+            normed = normalize(row.title)
+            if not normed:
+                continue
+            if normed in seen:
+                self.movieRepository.delete(row.id)
+                logger.info(f"Duplicate removed: {row.title}")
+                count += 1
+            else:
+                seen.add(normed)
+                _bloom.add(row.title)
+        return count
