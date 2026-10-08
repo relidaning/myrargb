@@ -135,14 +135,39 @@ _STEALTH_SCRIPT = """
 
 class PlaywrightDriver(BrowserDriver):
     def __init__(self):
+        # Playwright's sync API only works on the thread that started it, so
+        # every call runs on this one worker thread. Callers on any thread
+        # (Kafka consumer, Flask request) queue here and are served in turn.
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="playwright")
+        self._executor.submit(self._launch).result()
+
+    def _launch(self):
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(headless=True, args=_BROWSER_ARGS)
         self._context = self._browser.new_context(**_CONTEXT_OPTIONS)
         self._context.add_init_script(_STEALTH_SCRIPT)
 
+    def _shutdown(self):
+        for stop in (self._browser.close, self._pw.stop):
+            try:
+                stop()
+            except Exception as e:
+                logger.warning(f"[!] Playwright shutdown step failed: {e}")
+
     def fetch(self, url: str) -> str:
-        page = self._context.new_page()
+        return self._executor.submit(self._fetch, url).result()
+
+    def _fetch(self, url: str) -> str:
+        try:
+            page = self._context.new_page()
+        except Exception as e:
+            # The browser is gone (crashed or killed). Relaunch once instead of
+            # failing every later fetch until the app is restarted.
+            logger.warning(f"[!] Browser unusable ({e}), relaunching.")
+            self._shutdown()
+            self._launch()
+            page = self._context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
@@ -165,8 +190,8 @@ class PlaywrightDriver(BrowserDriver):
         return html
 
     def close(self):
-        self._browser.close()
-        self._pw.stop()
+        self._executor.submit(self._shutdown).result()
+        self._executor.shutdown()
 
 
 class DriverFactory:
