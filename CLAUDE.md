@@ -50,6 +50,7 @@ The `movies` table's `added` column holds the upload timestamp from rargb. The `
 - Items with `start < added < end` are inside the collected range and **skipped**.
 - Items outside the range are **inserted**, and the range expands.
 - The range is persisted **after every page**, so a crash loses at most one page of progress.
+- **Known bug — an interrupted catch-up crawl skips movies for good**: because the new `end` is saved after the first (newest) page, a crawl that stops before reaching the old `end` (a page fetch with no result table returns `[]` and breaks the loop, an exception, a restart) leaves the uncrawled stretch inside the range, and every later crawl skips it. Simulated 2026-10-10 on a copy of the live DB (fake 11-page site, 250 new movies, page 4 fails once): 75 of 250 stored, reruns add none. Fix in PR #11 (`opt/myrargb-20261010-0255`, open, not merged): `end` moves only once the crawl has reached the old `end`, and until then a rerun walks past the known URLs above it instead of stopping on them (75 → 250 of 250; cost: the newest pages are fetched again on a rerun). It does not repair a gap that already exists, and a page that always fails still blocks the catch-up. Take it in before the first crawl after a long stop — on 2026-10-10 the saved range ended at 2026-08-15.
 - Crawling stops when a page yields zero new items (all inside range).
 
 ### Year extraction
