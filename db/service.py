@@ -137,6 +137,12 @@ class MovieService:
         every item on a page falls inside the collected range, the crawl stops
         — we've caught up with previously crawled territory.
 
+        The range's end only moves forward once the crawl has reached the old
+        end. Until then the newer items are a separate island: recording them
+        as the new end would put the uncrawled stretch in between "inside the
+        range", and a crawl cut short (failed page fetch, crash) would skip it
+        for good. A rerun instead walks past the island's known URLs.
+
         Non-incremental mode crawls the single requested page with no range
         checks (manual UI use).
         """
@@ -151,6 +157,8 @@ class MovieService:
             current_page = 1
             page_start = range_start
             page_end = range_end
+            # Nothing to catch up to when there is no earlier range.
+            reached_range = not range_end
 
             crawler = RargbCrawler()
             try:
@@ -162,6 +170,13 @@ class MovieService:
 
                     new_on_page = 0
                     for item in items:
+                        if range_end and item.added and item.added <= range_end:
+                            reached_range = True
+                        # Every item seen counts towards the new end, known URLs
+                        # too, so a walked-past island ends up inside the range.
+                        if item.added and (not page_end or item.added > page_end):
+                            page_end = item.added
+
                         if self.movieRepository.exists_by_url(item.url):
                             logger.debug(f"[v] Skipping known URL: {item.url}")
                             continue
@@ -213,10 +228,12 @@ class MovieService:
                     )
 
                     # Persist range after each page so a crash doesn't lose progress
-                    if incremental and page_start and page_end:
+                    if incremental and reached_range and page_start and page_end:
                         self._update_collected_range(page_start, page_end)
 
-                    if new_on_page == 0:
+                    # A page of known URLs above the old end is the island left
+                    # by an interrupted catch-up — keep going until the range.
+                    if new_on_page == 0 and (reached_range or not incremental):
                         break
 
                     current_page += 1
