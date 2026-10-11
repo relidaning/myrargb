@@ -75,7 +75,14 @@ def index():
 @app.route("/crawl_rargb", methods=["GET"])
 def crawl_from_rargb():
     incremental = request.args.get("incremental", "false").lower() == "true"
-    service.crawl_rargb(incremental=incremental)
+    if not service.crawl_rargb(incremental=incremental):
+        return jsonify(
+            {
+                "status": "error",
+                "message": "Crawl did not complete: rargb blocked the request, "
+                "Kafka is unreachable, or an error occurred. See the log.",
+            }
+        ), 502
     return jsonify(
         {
             "status": "success",
