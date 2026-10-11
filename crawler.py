@@ -58,6 +58,10 @@ def clean_search_title(title: str, year: str | None = None) -> str:
     return s.strip(" .-_([{") or title.strip()
 
 
+class RargbBlockedError(Exception):
+    """rargb answered with a Cloudflare check page, not the movie listing."""
+
+
 class RargbCrawler:
     def __init__(self):
         self._driver = DriverFactory().create_driver()
@@ -82,8 +86,13 @@ class RargbCrawler:
             table = soup.find("table", {"class": "lista2t"})
 
             if not table:
+                title = soup.title.get_text(strip=True) if soup.title else ""
+                if "Just a moment" in title or "challenges.cloudflare.com" in html:
+                    raise RargbBlockedError(
+                        f"Cloudflare check page instead of the listing at {url}"
+                    )
                 logger.error(
-                    "❌ Could not find result table. Cloudflare may need more delay.\n {html}"
+                    f"❌ Could not find result table at {url} (page title: {title!r})."
                 )
                 return []
 

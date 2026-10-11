@@ -7,7 +7,7 @@ from db_model import Movie, Collected
 from utils.kafka_utils import ProducerUtil
 from workflow import Workflow
 from typing import List
-from crawler import ImdbCrawler, RargbCrawler
+from crawler import ImdbCrawler, RargbBlockedError, RargbCrawler
 from model.model import model
 from utils.bloom_utils import BloomUtils, normalize
 
@@ -240,8 +240,12 @@ class MovieService:
             finally:
                 crawler.close()
 
+        except RargbBlockedError as e:
+            logger.error(f"[x] rargb blocked the crawl, nothing more fetched: {e}")
+            return False
         except Exception as e:
             logger.error(f"[x] Error on crawling:\n{e}")
+            return False
 
         return True
 
