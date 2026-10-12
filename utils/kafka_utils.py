@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Callable, List
 
 from confluent_kafka import Consumer, Producer, KafkaException
@@ -8,20 +9,31 @@ logger = logging.getLogger(__name__)
 
 
 class ProducerUtil:
+    # How long a reachability answer is trusted. Without an expiry a broker
+    # that was down at the first check stayed "unreachable" until app restart,
+    # and one that went down later stayed "reachable".
+    AVAILABLE_TTL_SECONDS = 30
+
     _available_cache: bool | None = None
+    _available_checked_at: float = 0.0
 
     def __init__(self):
         self.producer = Producer({"bootstrap.servers": "kafka:9092"})
 
     def available(self) -> bool:
-        if ProducerUtil._available_cache is None:
+        expired = (
+            time.monotonic() - ProducerUtil._available_checked_at
+            >= self.AVAILABLE_TTL_SECONDS
+        )
+        if ProducerUtil._available_cache is None or expired:
             try:
                 self.producer.list_topics(timeout=3)
                 ProducerUtil._available_cache = True
                 logger.info("[v] Kafka broker reachable.")
             except KafkaException:
                 ProducerUtil._available_cache = False
-                logger.warning("[!] Kafka broker unreachable, processing inline.")
+                logger.warning("[!] Kafka broker unreachable.")
+            ProducerUtil._available_checked_at = time.monotonic()
         return ProducerUtil._available_cache
 
     @staticmethod
