@@ -1,12 +1,13 @@
-import os
 import time
-import asyncio
 import logging
 from selenium import webdriver
 from utils.settings import settings
 from abc import ABC, abstractmethod
 import undetected_chromedriver as uc
-from concurrent.futures import ThreadPoolExecutor
+import json
+from uuid import uuid4
+from urllib.parse import urlsplit, urlunsplit, unquote
+from browserdriver.errors import BrowserFetchError, BrowserChallengeError, challenge_reason
 
 logger = logging.getLogger(__name__)
 
@@ -75,94 +76,136 @@ class UndetectedChromeBrowserDriver(BrowserDriver):
         return html
 
 
-_BROWSER_ARGS = [
-    "--disable-blink-features=AutomationControlled",
-    "--disable-features=IsolateOrigins,site-per-process",
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-accelerated-2d-canvas",
-    "--no-first-run",
-    "--no-zygote",
-    "--disable-gpu",
-    "--window-size=1920,1080",
-]
-
-_CONTEXT_OPTIONS = dict(
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    viewport={"width": 1920, "height": 1080},
-    locale="en-US",
-    timezone_id="America/New_York",
-    permissions=["geolocation"],
-    extra_http_headers={
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-    },
-)
-
-_STEALTH_SCRIPT = """
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(navigator, 'plugins', {
-        get: () => [
-            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-            { name: 'Native Client', filename: 'internal-nacl-plugin' },
-        ],
-    });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    window.chrome = {
-        runtime: {
-            PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' },
-            PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
-            PlatformNaclArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
-            RequestUpdateCheckStatus: { THROTTLED: 'throttled', NO_UPDATE: 'no_update', UPDATE_AVAILABLE: 'update_available' },
-            OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update', SHARED_MODULE_UPDATE: 'shared_module_update' },
-            OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
-        },
-    };
-    const originalQuery = window.navigator.permissions.query;
-    window.navigator.permissions.query = (parameters) => (
-        parameters.name === 'notifications'
-            ? Promise.resolve({ state: Notification.permission })
-            : originalQuery(parameters)
-    );
-"""
-
-
 class PlaywrightDriver(BrowserDriver):
     def __init__(self):
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=True, args=_BROWSER_ARGS)
-        self._context = self._browser.new_context(**_CONTEXT_OPTIONS)
-        self._context.add_init_script(_STEALTH_SCRIPT)
+        try:
+            options = {
+                "headless": settings.browser_headless,
+                "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+            }
+            if settings.browser_proxy:
+                parsed = urlsplit(settings.browser_proxy)
+                hostname = parsed.hostname
+                if ':' in hostname:
+                    hostname = f'[{hostname}]'
+                server = f'{parsed.scheme}://{hostname}'
+                if parsed.port:
+                    server += f':{parsed.port}'
+                proxy = {"server": server}
+                if parsed.username is not None:
+                    proxy['username'] = unquote(parsed.username)
+                if parsed.password is not None:
+                    proxy['password'] = unquote(parsed.password)
+                options['proxy'] = proxy
+            else:
+                options['args'].append('--no-proxy-server')
+            self._browser = self._pw.chromium.launch(**options)
+            self._context = self._browser.new_context()
+        except Exception:
+            if hasattr(self, '_browser'):
+                self._browser.close()
+            self._pw.stop()
+            raise BrowserFetchError('Browser startup failed; check browser installation, display and proxy settings.') from None
+        logger.info('Browser route: %s', 'explicit proxy' if settings.browser_proxy else 'direct')
+
+    def _diagnostics(self, page, url, response, reason):
+        diagnostic_id = uuid4().hex
+        directory = settings.browser_diagnostics_path
+        metadata = {
+            'id': diagnostic_id,
+            'reason': reason,
+            'requested_url': self._safe_url(url),
+            'final_url': self._safe_url(page.url),
+            'status': response.status if response else None,
+            'proxy_mode': 'explicit' if settings.browser_proxy else 'direct',
+            'title': None,
+            'cf_ray': None,
+            'screenshot': None,
+        }
+        if response:
+            ray = response.headers.get('cf-ray')
+            metadata['cf_ray'] = BrowserFetchError('', ray_id=ray).ray_id
+        try:
+            metadata['title'] = page.title()[:300]
+        except Exception:
+            pass
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            # Bound screenshot work even when the page never finishes loading.
+            page.screenshot(path=str(directory / f'{diagnostic_id}.png'), timeout=3000)
+            metadata['screenshot'] = f'{diagnostic_id}.png'
+        except Exception:
+            # Metadata remains useful even when screenshot capture fails.
+            pass
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / f'{diagnostic_id}.json').write_text(json.dumps(metadata, indent=2))
+            logger.warning('Browser failure: %s; diagnostic=%s; status=%s; Ray ID=%s',
+                           reason, diagnostic_id, metadata['status'], metadata['cf_ray'])
+            return diagnostic_id, metadata['cf_ray']
+        except OSError:
+            logger.warning('Could not write browser diagnostics; check browser_diagnostics_path permissions.')
+            return None, metadata['cf_ray']
+
+    @staticmethod
+    def _safe_url(url):
+        # Diagnostic URLs exclude credentials, query parameters and fragments.
+        parts = urlsplit(url)
+        host = parts.hostname or ''
+        if ':' in host:
+            host = f'[{host}]'
+        if parts.port:
+            host += f':{parts.port}'
+        return urlunsplit((parts.scheme, host, parts.path, '', ''))
 
     def fetch(self, url: str) -> str:
         page = self._context.new_page()
+        latest = [None]
+
+        def track_response(response):
+            if response.request.is_navigation_request() and response.frame == page.main_frame:
+                latest[0] = response
+
+        page.on('response', track_response)
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-
-            # Wait for WAF challenge to resolve — this is the key fix
-            # AWS WAF challenge runs JS and reloads; wait for the real content
-            for _ in range(5):
-                content = page.content()
-                if "challenge-container" in content or "awswaf" in content.lower():
-                    page.wait_for_timeout(3000)
-                    page.wait_for_load_state("networkidle", timeout=15000)
-                else:
+            latest[0] = page.goto(url, wait_until='domcontentloaded',
+                                  timeout=settings.browser_navigation_timeout * 1000)
+            deadline = time.monotonic() + settings.browser_challenge_wait
+            while True:
+                html = page.content()
+                headers = latest[0].headers if latest[0] else {}
+                reason = challenge_reason(html, headers)
+                if not reason:
                     break
-
-            html = page.content()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    diagnostic_id, ray_id = self._diagnostics(page, url, latest[0], reason)
+                    raise BrowserChallengeError(
+                        f'{reason} blocked the crawl. Open the URL in a normal browser to check access.',
+                        diagnostic_id=diagnostic_id, ray_id=ray_id)
+                page.wait_for_timeout(min(500, remaining * 1000))
+            if latest[0] and latest[0].status >= 400:
+                diagnostic_id, ray_id = self._diagnostics(page, url, latest[0], 'HTTP error')
+                raise BrowserFetchError(f'Upstream returned HTTP {latest[0].status}.',
+                                        diagnostic_id=diagnostic_id, ray_id=ray_id)
+            return html
+        except BrowserFetchError:
+            raise
+        except Exception:
+            diagnostic_id, ray_id = self._diagnostics(page, url, latest[0], 'Navigation failed')
+            # Playwright exception strings can contain URLs and proxy credentials.
+            raise BrowserFetchError('Browser navigation failed or timed out.',
+                                    diagnostic_id=diagnostic_id, ray_id=ray_id) from None
         finally:
             page.close()
-        return html
 
     def close(self):
-        self._browser.close()
-        self._pw.stop()
+        try:
+            self._browser.close()
+        finally:
+            self._pw.stop()
 
 
 class DriverFactory:

@@ -84,8 +84,9 @@ stay in `docker/Dockerfile`. Dependency or image changes require a rebuild.
 | Browser scraping | Playwright default, optional Selenium; `src/browserdriver/driver.py`, Docker image | `chrome_url` applies only to Selenium. Changing the default driver requires factory code and matching browser dependencies; site changes require parser updates in `src/crawler.py`. |
 | TV data | TVMaze JSON API; `src/tv_crawler.py`, `tvmaze_*` settings | Base URL must expose the same endpoints and schema; a different provider needs an adapter and a plan for existing TVMaze IDs/cache data. |
 
-Page sizes, generation parameters, browser fingerprint/challenge handling, site
-parsers, topic/group identifiers, and schema invariants remain in code. They have
+Browser routing, navigation/challenge waits and diagnostics are configurable; see
+[crawler troubleshooting](crawler-troubleshooting.md). Browser identity uses
+Playwright defaults. Page sizes, generation parameters, site parsers, topic/group identifiers, and schema invariants remain in code. They have
 no supported configuration replacement contract in this change. Kafka storage
 and GPU/proxy deployment are not migrated or redeployed by changing these files.
 

@@ -221,7 +221,10 @@
     showMask('Crawling RARGB…');
     axios.get('/crawl_rargb', { params: { incremental: true } })
       .then(r => { hideMask(); showToast(r.data.message).then(() => location.reload()); })
-      .catch(e => { hideMask(); console.error(e); });
+      .catch(e => {
+        hideMask();
+        showToast(e.response?.data?.message || 'Crawl failed. Check the application log.', 10000);
+      });
   }
 
   function abandonItem(id) {

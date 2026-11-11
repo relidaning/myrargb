@@ -9,6 +9,7 @@ from utils.kafka_utils import ProducerUtil
 from workflow import Workflow
 from typing import List
 from crawler import ImdbCrawler, RargbCrawler
+from browserdriver.errors import BrowserFetchError
 from model.model import model
 from utils.bloom_utils import BloomUtils
 
@@ -228,8 +229,11 @@ class MovieService:
             finally:
                 crawler.close()
 
+        except BrowserFetchError:
+            raise
         except Exception as e:
-            logger.error(f"[x] Error on crawling:\n{e}")
+            logger.error('[x] Crawl failed (%s).', type(e).__name__)
+            raise BrowserFetchError('Crawl failed; check the application log.') from None
 
         return True
 

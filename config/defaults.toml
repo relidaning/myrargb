@@ -16,6 +16,7 @@ kafka_probe_timeout = 3.0
 # Retry broker discovery after an outage, instead of caching failure forever.
 kafka_probe_cache_seconds = 30.0
 background_jobs = true
+
 tvmaze_base_url = "https://api.tvmaze.com"
 tvmaze_timeout = 10.0
 tvmaze_rate_limit_delay = 0.3
@@ -23,3 +24,12 @@ tvmaze_poll_interval = 21600
 tvmaze_days_back = 7
 tvmaze_days_forward = 14
 chrome_url = "http://localhost:4444/wd/hub"
+
+# Playwright routing is explicit: empty means direct, independent of HTTP_PROXY.
+# Put proxy credentials in MYRARGB_BROWSER_PROXY, not in tracked configuration.
+browser_proxy = ""
+browser_headless = true
+browser_navigation_timeout = 30.0
+# Passive wait for an interstitial to finish; no automated CAPTCHA interaction.
+browser_challenge_wait = 10.0
+browser_diagnostics_path = "logs/browser"

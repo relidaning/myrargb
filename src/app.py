@@ -3,6 +3,7 @@ import os
 from logging.handlers import RotatingFileHandler
 
 from utils.settings import settings
+from browserdriver.errors import BrowserFetchError
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 
@@ -103,7 +104,18 @@ def index():
 @app.route("/crawl_rargb", methods=["GET"])
 def crawl_from_rargb():
     incremental = request.args.get("incremental", "false").lower() == "true"
-    service.crawl_rargb(incremental=incremental)
+    try:
+        completed = service.crawl_rargb(incremental=incremental)
+    except BrowserFetchError as error:
+        message = str(error)
+        if error.diagnostic_id:
+            message += f" Diagnostic: {error.diagnostic_id}."
+        if error.ray_id:
+            message += f" Ray ID: {error.ray_id}."
+        return jsonify(status="error", code=error.code, message=message,
+                       diagnostic_id=error.diagnostic_id, ray_id=error.ray_id), 502
+    if not completed:
+        return jsonify(status="error", code="kafka_unavailable", message="Kafka is unreachable."), 503
     return jsonify(
         {
             "status": "success",

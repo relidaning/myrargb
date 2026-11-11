@@ -1,6 +1,7 @@
 """Validated process configuration; importing this module performs no I/O to services."""
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
+from urllib.parse import urlsplit
 from pathlib import Path
 import os
 import tomllib
@@ -34,6 +35,11 @@ class Settings:
     tvmaze_days_back: int
     tvmaze_days_forward: int
     chrome_url: str
+    browser_proxy: str = field(repr=False)
+    browser_headless: bool
+    browser_navigation_timeout: float
+    browser_challenge_wait: float
+    browser_diagnostics_path: Path
 
 
 def load_settings(environ=None) -> Settings:
@@ -69,11 +75,21 @@ def load_settings(environ=None) -> Settings:
                 if isinstance(raw, bool) or (kind is int and isinstance(raw, float)):
                     raise ValueError('expected a number of the declared type')
                 raw = kind(raw)
-                minimum = 0 if name in ('tvmaze_rate_limit_delay', 'tvmaze_days_back', 'tvmaze_days_forward') else 1e-9
+                minimum = 0 if name in ('tvmaze_rate_limit_delay', 'tvmaze_days_back', 'tvmaze_days_forward', 'browser_challenge_wait') else 1e-9
                 if not minimum <= raw < float('inf'):
                     raise ValueError('outside supported range')
                 if name == 'port' and raw > 65535:
                     raise ValueError('expected port in 1..65535')
+            elif name == 'browser_proxy':
+                if not isinstance(raw, str):
+                    raise ValueError('expected proxy URL or empty string')
+                raw = raw.strip()
+                if raw:
+                    proxy = urlsplit(raw)
+                    if (proxy.scheme not in ('http', 'https', 'socks5') or not proxy.hostname
+                            or proxy.path not in ('', '/') or proxy.query or proxy.fragment):
+                        raise ValueError('invalid proxy URL')
+                    proxy.port  # Validate an optional port without printing credentials.
             else:
                 if not isinstance(raw, str) or not raw.strip():
                     raise ValueError('expected a nonempty string')

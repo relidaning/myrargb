@@ -29,13 +29,8 @@ Open `http://localhost:5000`. Click **Crawl RARGB!** to start an incremental cra
 
 ## Configuration
 
-Copy `.env.example` to `.env` for local overrides. Edit the commented defaults in
-[`config/defaults.toml`](config/defaults.toml), or use an optional local TOML file
+Edit the commented defaults in [`config/defaults.toml`](config/defaults.toml), or use an optional local TOML file
 and environment overrides. Paths resolve from the project root.
-
-See [configuration, layout and technology map](docs/configuration.md) for
-precedence, storage mounts, browsing without background jobs, and the code or
-migration work needed to replace each component.
 
 ## Project layout
 
@@ -51,3 +46,11 @@ Docker. Root Compose files remain discoverable with `docker compose`.
 Trigger a crawl with `./scripts/send_msg_to_kafka.sh`. After this layout change,
 rebuild/recreate the app container to apply its new source mounts; see the
 [deployment details](docs/configuration.md#layout-and-deployment).
+
+## Crawler troubleshooting
+
+Run `.venv/bin/python scripts/check_crawler.py` to check catalog access without
+Kafka or database writes. Browser proxy/wait settings live in
+`config/defaults.toml`; failure screenshots and metadata go to `logs/browser/`.
+See [crawler troubleshooting](docs/crawler-troubleshooting.md) for setup and
+Cloudflare error diagnosis.

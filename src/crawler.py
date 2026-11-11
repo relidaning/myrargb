@@ -2,6 +2,7 @@ from bs4 import BeautifulSoup
 import argparse
 import time
 from browserdriver.driver import DriverFactory
+from browserdriver.errors import BrowserChallengeError, BrowserFetchError, UnexpectedPageError, challenge_reason
 import logging
 from db_model import Movie
 from typing import List
@@ -19,12 +20,12 @@ class RargbCrawler:
     def close(self):
         self._driver.close()
 
+    @staticmethod
+    def page_url(page: int) -> str:
+        return f"https://rargb.to/torrents/{page}/?category[]=movies&category[]=tv"
+
     def crawl(self, param: dict) -> List:
-        page = param["page"]
-        if page == 1:
-            url = "https://rargb.to/movies/"
-        else:
-            url = f"https://rargb.to/movies/{page}/"
+        url = self.page_url(param["page"])
 
         html = self._driver.fetch(url)
 
@@ -36,10 +37,10 @@ class RargbCrawler:
             table = soup.find("table", {"class": "lista2t"})
 
             if not table:
-                logger.error(
-                    "❌ Could not find result table. Cloudflare may need more delay.\n {html}"
-                )
-                return []
+                reason = challenge_reason(html)
+                if reason:
+                    raise BrowserChallengeError(f'{reason} blocked the crawl.')
+                raise UnexpectedPageError('The upstream page has no catalog table; its layout may have changed.')
 
             movies = []
             rows = table.find_all("tr")[1:]
@@ -99,7 +100,9 @@ class ImdbCrawler:
             try:
                 html = self._driver.fetch(url)
                 if not html:
-                    logger.info(f"[x] Haven't found html in fetching (attempt {attempt}/{IMDB_MAX_ATTEMPTS}).")
+                    logger.info(
+                        f"[x] Haven't found html in fetching (attempt {attempt}/{IMDB_MAX_ATTEMPTS})."
+                    )
                     raise ValueError("empty html")
 
                 soup = BeautifulSoup(html, "html.parser")
@@ -109,7 +112,9 @@ class ImdbCrawler:
                 try:
                     ul = soup.find("ul", {"class": "ipc-metadata-list--base"})
                     if not ul:
-                        logger.info(f"[x] Could not find result list (attempt {attempt}/{IMDB_MAX_ATTEMPTS}).")
+                        logger.info(
+                            f"[x] Could not find result list (attempt {attempt}/{IMDB_MAX_ATTEMPTS})."
+                        )
                         raise ValueError("result list not found")
 
                     lis = ul.find_all("li", {"class": "ipc-metadata-list-summary-item"})
@@ -121,17 +126,33 @@ class ImdbCrawler:
                         li_img = li.find("img", {"class": "ipc-image"})
                         poster = li_img["src"] if li_img else None
                         li_title = li.find("h3", {"class": "ipc-title__text"})
-                        found_title = str(li_title.string) if li_title and li_title.string else None
+                        found_title = (
+                            str(li_title.string)
+                            if li_title and li_title.string
+                            else None
+                        )
                         li_score = li.find("span", {"class": "ipc-rating-star--rating"})
-                        score = str(li_score.string) if li_score and li_score.string else None
+                        score = (
+                            str(li_score.string)
+                            if li_score and li_score.string
+                            else None
+                        )
                         li_year = li.find("li", {"class": "ipc-inline-list__item"})
-                        year = str(li_year.string) if li_year and li_year.string else None
+                        year = (
+                            str(li_year.string) if li_year and li_year.string else None
+                        )
                         if item.year and year != item.year:
-                            logger.info(f"[x] Year mismatch: IMDb={year}, expected={item.year}, trying next result.")
+                            logger.info(
+                                f"[x] Year mismatch: IMDb={year}, expected={item.year}, trying next result."
+                            )
                             continue
 
                         title_a = li_title.find_parent("a") if li_title else None
-                        summary = self._fetch_summary(title_a["href"]) if title_a and title_a.get("href") else None
+                        summary = (
+                            self._fetch_summary(title_a["href"])
+                            if title_a and title_a.get("href")
+                            else None
+                        )
 
                         return Movie(
                             id=item.id,
@@ -141,13 +162,20 @@ class ImdbCrawler:
                             summary=summary,
                         )
 
-                    logger.info(f"[x] No year-matching IMDb result for '{title}' (expected {item.year}).")
+                    logger.info(
+                        f"[x] No year-matching IMDb result for '{title}' (expected {item.year})."
+                    )
                     break  # scanned every candidate — genuine no-match, not worth retrying
                 finally:
                     soup.decompose()
 
+            except BrowserFetchError:
+                # A blocked/unavailable provider is not a permanent title mismatch.
+                raise
             except Exception as e:
-                logger.error(f" Error processing item {item} (attempt {attempt}/{IMDB_MAX_ATTEMPTS}): {e}")
+                logger.error(
+                    f" Error processing item {item} (attempt {attempt}/{IMDB_MAX_ATTEMPTS}): {e}"
+                )
                 if attempt < IMDB_MAX_ATTEMPTS:
                     time.sleep(IMDB_RETRY_DELAY_SECONDS)
 
