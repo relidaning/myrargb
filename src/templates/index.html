@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyRargb</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<nav class="navbar">
+  <span class="navbar-brand">MyRargb</span>
+  <form class="navbar-search" method="get" action="/">
+    <input
+      type="text"
+      name="q"
+      class="search-input"
+      placeholder="Search title or filename…"
+      value="{{ q }}"
+      autocomplete="off"
+    />
+    <select name="sort" class="sort-select" onchange="this.form.submit()" aria-label="Sort by">
+      <option value="score" {% if sort == 'score' %}selected{% endif %}>Best score</option>
+      <option value="seed" {% if sort == 'seed' %}selected{% endif %}>Most seeds</option>
+    </select>
+    <button type="submit" class="btn btn-ghost-search" aria-label="Search">&#128269;</button>
+    {% if q %}
+      <a href="/?sort={{ sort }}" class="btn btn-ghost-search" aria-label="Clear search">&times;</a>
+    {% endif %}
+  </form>
+  <div class="navbar-actions">
+    <a class="btn btn-ghost" href="/tv">TV</a>
+    <button class="btn btn-primary" onclick="crawlrargb()">&#8595; Crawl</button>
+    <button class="btn btn-ghost" onclick="deduplicate()">&#9851; Deduplicate</button>
+    {% if finetunable %}
+    <button class="btn btn-purple" onclick="train()">
+      &#9889; Train <span class="badge">{{ trainable_count }}</span>
+    </button>
+    {% endif %}
+    <button class="btn btn-ghost bell-btn" onclick="toggleNotifications()">
+      &#128276; <span id="notif-badge" class="badge hidden">0</span>
+    </button>
+  </div>
+</nav>
+
+<div id="notif-panel" class="notif-panel hidden"></div>
+<div id="movie-popover" class="movie-popover hidden"></div>
+
+<main class="main">
+  <div class="table-wrapper">
+    <table class="movie-table">
+      <thead>
+        <tr>
+          <th class="tc" style="width:44px">#</th>
+          <th style="width:60px">Poster</th>
+          <th>Title</th>
+          <th class="tc" style="width:58px">Year</th>
+          <th style="width:110px">Genre</th>
+          <th class="tc" style="width:76px">Score</th>
+          <th class="tc" style="width:90px">Seeds</th>
+          <th style="width:140px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr class="movie-row{% if item.marked == '01' %} row-abandoned{% elif item.marked == '02' %} row-watched{% endif %}">
+
+          <td class="tc muted">{{ (page - 1) * 20 + loop.index }}</td>
+
+          <td>
+            <a href="{{ item.url }}" target="_blank" class="poster-link"
+               data-movie-id="{{ item.id }}"
+               data-poster="{{ item.poster or '' }}"
+               data-title="{{ item.title_accurate or item.title or 'Untitled' }}"
+               data-year="{{ item.year or '' }}"
+               data-genre="{{ item.genre or '' }}"
+               data-score="{{ item.score or '' }}"
+               data-summary="{{ item.summary or '' }}"
+            >
+              <img
+                src="{{ item.poster if item.poster else url_for('static', filename='images/default.jpg') }}"
+                alt="poster"
+                class="poster-img"
+              />
+            </a>
+          </td>
+
+          <td>
+            <a href="{{ item.url }}" target="_blank" class="title-link">
+              {% if item.title_accurate %}
+                <span class="title title-ok">{{ item.title_accurate }}</span>
+              {% elif item.title %}
+                <span class="title title-predicted">{{ item.title }}</span>
+              {% else %}
+                <span class="title title-missing">Untitled</span>
+              {% endif %}
+            </a>
+            <span class="filename">{{ item.filename }}</span>
+          </td>
+
+          <td class="tc muted">{{ item.year or '—' }}</td>
+
+          <td class="muted">{{ item.genre or '—' }}</td>
+
+          <td class="tc">
+            {% if item.score and item.score != 'unmatched' %}
+              {% set s = item.score | float %}
+              <span class="score-badge {% if s >= 7 %}score-high{% elif s >= 5 %}score-mid{% else %}score-low{% endif %}">
+                &#9733; {{ item.score }}
+              </span>
+            {% elif item.score == 'unmatched' %}
+              <span class="score-badge score-none">&#8212;</span>
+            {% else %}
+              <span class="score-badge score-pending">?</span>
+            {% endif %}
+          </td>
+
+          <td class="tc">
+            {% if item.seed is not none %}
+              <span class="seed-badge">&#9650; {{ item.seed }}</span>
+              <span class="leech-badge">&#9660; {{ item.leech if item.leech is not none else 0 }}</span>
+            {% else %}
+              <span class="score-badge score-pending">?</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if item.marked == '01' %}
+              <span class="status-tag tag-abandoned">Abandoned</span>
+            {% elif item.marked == '02' %}
+              <span class="status-tag tag-watched">Watched</span>
+            {% else %}
+              <button class="action-btn btn-edit"  onclick="openDialog('{{ item.id }}')">Edit</button>
+              <button class="action-btn btn-watch" onclick="watchedItem('{{ item.id }}')">Watch</button>
+              <button class="action-btn btn-drop"  onclick="abandonItem('{{ item.id }}')">Drop</button>
+            {% endif %}
+          </td>
+
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination">
+    {% if page > 1 %}
+      <a class="page-btn" href="/?page={{ page - 1 }}&sort={{ sort }}{% if q %}&q={{ q | urlencode }}{% endif %}">&larr;</a>
+    {% endif %}
+
+    {% for p in pages %}
+      {% if p is none %}
+        <span class="page-gap">&hellip;</span>
+      {% elif p == page %}
+        <span class="page-btn page-current">{{ p }}</span>
+      {% else %}
+        <a class="page-btn" href="/?page={{ p }}&sort={{ sort }}{% if q %}&q={{ q | urlencode }}{% endif %}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+
+    {% if has_next %}
+      <a class="page-btn" href="/?page={{ page + 1 }}&sort={{ sort }}{% if q %}&q={{ q | urlencode }}{% endif %}">&rarr;</a>
+    {% endif %}
+
+    <span class="page-info">{{ page }} / {{ total_pages }}</span>
+  </div>
+</main>
+
+<dialog id="titleDialog">
+  <form method="dialog" class="dialog-form">
+    <p class="dialog-title">Correct Title</p>
+    <input
+      type="text"
+      id="title_accurate"
+      class="dialog-input"
+      placeholder="Accurate movie title…"
+      autocomplete="off"
+    />
+    <div class="dialog-actions">
+      <button class="btn-ghost" value="cancel">Cancel</button>
+      <button class="btn btn-primary" id="confirmBtn" value="confirm">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="mask" class="mask">
+  <div class="spinner"></div>
+  <div class="mask-text">Processing…</div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+  const dialog = document.getElementById('titleDialog');
+  const titleInput = document.getElementById('title_accurate');
+  let correctId = null;
+
+  dialog.addEventListener('close', () => {
+    if (dialog.returnValue === 'confirm' && titleInput.value.trim()) {
+      axios.put(`/movies/${correctId}/correct`, { title_accurate: titleInput.value.trim() })
+        .then(async r => { await showToast(r.data.message); location.reload(); })
+        .catch(console.error);
+    }
+  });
+
+  function openDialog(id) {
+    correctId = id;
+    titleInput.value = '';
+    dialog.showModal();
+    setTimeout(() => titleInput.focus(), 50);
+  }
+
+  titleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      dialog.close('confirm');
+    }
+  });
+
+  function crawlrargb() {
+    showMask('Crawling RARGB…');
+    axios.get('/crawl_rargb', { params: { incremental: true } })
+      .then(r => { hideMask(); showToast(r.data.message).then(() => location.reload()); })
+      .catch(e => { hideMask(); console.error(e); });
+  }
+
+  function abandonItem(id) {
+    axios.get(`/movies/${id}/abandon`)
+      .then(async r => { await showToast(r.data.message); location.reload(); })
+      .catch(console.error);
+  }
+
+  function watchedItem(id) {
+    axios.get(`/movies/${id}/watched`)
+      .then(async r => { await showToast(r.data.message); location.reload(); })
+      .catch(console.error);
+  }
+
+  function train() {
+    showMask('Training model…');
+    axios.post('/model/train')
+      .then(async r => { hideMask(); await showToast(r.data.message); })
+      .catch(e => { hideMask(); console.error(e); });
+  }
+
+  function deduplicate() {
+    showMask('Removing duplicates…');
+    axios.get('/deduplicate')
+      .then(r => { hideMask(); showToast(r.data.message).then(() => location.reload()); })
+      .catch(e => { hideMask(); console.error(e); });
+  }
+
+  function showMask(msg = 'Processing…') {
+    document.querySelector('.mask-text').textContent = msg;
+    document.getElementById('mask').style.display = 'flex';
+  }
+
+  function hideMask() {
+    document.getElementById('mask').style.display = 'none';
+  }
+
+  function showToast(msg, duration = 2000) {
+    return new Promise(resolve => {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => { t.classList.add('hidden'); resolve(); }, duration);
+    });
+  }
+
+  // Notification messages embed TVMaze show names (user-submitted upstream) —
+  // escape before interpolating into innerHTML.
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  function loadNotifications() {
+    axios.get('/tv/notifications').then(r => {
+      const list = r.data.notifications || [];
+      const badge = document.getElementById('notif-badge');
+      badge.textContent = list.length;
+      badge.classList.toggle('hidden', list.length === 0);
+
+      const panel = document.getElementById('notif-panel');
+      panel.innerHTML = list.length
+        ? list.map(n => `
+            <div class="notif-item">
+              <span>${esc(n.message)}</span>
+              <button class="action-btn btn-watch" onclick="readNotification(${Number(n.id)})">Dismiss</button>
+            </div>`).join('')
+        : '<div class="notif-item muted">No new episodes.</div>';
+    }).catch(console.error);
+  }
+
+  function readNotification(id) {
+    axios.post(`/tv/notifications/${id}/read`).then(loadNotifications).catch(console.error);
+  }
+
+  function toggleNotifications() {
+    const panel = document.getElementById('notif-panel');
+    panel.classList.toggle('hidden');
+  }
+
+  loadNotifications();
+  // Keep the bell fresh on long-open tabs — the 6-hour background crawl
+  // writes notifications this would otherwise never show until a refresh.
+  setInterval(loadNotifications, 5 * 60 * 1000);
+
+  // --- poster hover detail popover ---
+  // All data (poster/title/score/summary) is already embedded on the
+  // poster link as data-* attributes from the row the server rendered —
+  // no extra request needed, unlike the TV popover's live TVMaze fetch.
+  const HOVER_DETAIL_DELAY_MS = 1000;
+  const POPOVER_HIDE_GRACE_MS = 250;
+  const DEFAULT_POSTER = '{{ url_for("static", filename="images/default.jpg") }}';
+
+  const moviePopover = document.getElementById('movie-popover');
+  let hoverPoster = null;
+  let posterHoverTimer = null;
+  let posterHideTimer = null;
+  let posterShowPending = false;
+
+  function scoreClass(score) {
+    if (score === 'unmatched') return 'score-none';
+    if (!score) return 'score-pending';
+    const s = parseFloat(score);
+    return s >= 7 ? 'score-high' : s >= 5 ? 'score-mid' : 'score-low';
+  }
+
+  function armPosterShowTimer(link) {
+    clearTimeout(posterHoverTimer);
+    posterShowPending = true;
+    posterHoverTimer = setTimeout(() => {
+      posterShowPending = false;
+      renderMoviePopover(link);
+    }, HOVER_DETAIL_DELAY_MS);
+  }
+
+  function hideMoviePopover() {
+    moviePopover.classList.add('hidden');
+    hoverPoster = null;
+  }
+
+  function scheduleMoviePopoverHide() {
+    clearTimeout(posterHideTimer);
+    posterHideTimer = setTimeout(hideMoviePopover, POPOVER_HIDE_GRACE_MS);
+  }
+
+  document.addEventListener('mouseover', e => {
+    const link = e.target.closest('[data-movie-id]');
+    if (!link) return;
+    if (link === hoverPoster) {
+      clearTimeout(posterHideTimer);
+      // Re-entered before the popover ever showed (timer was cancelled on
+      // leave) — start the 1s count again.
+      if (moviePopover.classList.contains('hidden') && !posterShowPending) armPosterShowTimer(link);
+      return;
+    }
+    hoverPoster = link;
+    armPosterShowTimer(link);
+  });
+
+  document.addEventListener('mouseout', e => {
+    const link = e.target.closest('[data-movie-id]');
+    if (!link || link !== hoverPoster) return;
+    const to = e.relatedTarget;
+    if (to && (link.contains(to) || moviePopover.contains(to))) return;
+    clearTimeout(posterHoverTimer);
+    posterShowPending = false;
+    scheduleMoviePopoverHide();
+  });
+
+  moviePopover.addEventListener('mouseenter', () => clearTimeout(posterHideTimer));
+  moviePopover.addEventListener('mouseleave', e => {
+    const to = e.relatedTarget;
+    if (to && hoverPoster && hoverPoster.contains(to)) return;
+    scheduleMoviePopoverHide();
+  });
+
+  function renderMoviePopover(link) {
+    const d = link.dataset;
+    const metaLine = [d.year, d.genre].filter(Boolean).join(' · ');
+
+    moviePopover.innerHTML = `
+      <div class="movie-popover-header">
+        <img src="${esc(d.poster || DEFAULT_POSTER)}" alt="poster" class="movie-popover-poster" loading="lazy" />
+        <div class="movie-popover-meta">
+          <div class="movie-popover-name">${esc(d.title)}</div>
+          ${metaLine ? `<div class="muted">${esc(metaLine)}</div>` : ''}
+          <div>
+            <span class="score-badge ${scoreClass(d.score)}">${d.score && d.score !== 'unmatched' ? '&#9733; ' + esc(d.score) : '?'}</span>
+          </div>
+        </div>
+      </div>
+      ${d.summary ? `<div class="movie-popover-summary">${esc(d.summary)}</div>` : '<div class="movie-popover-summary muted">Fetching summary…</div>'}`;
+
+    moviePopover.classList.remove('hidden');
+    const rect = link.getBoundingClientRect();
+    let left = rect.right + 8;
+    if (left + moviePopover.offsetWidth > window.innerWidth - 8) {
+      left = rect.left - moviePopover.offsetWidth - 8;
+    }
+    left = Math.max(8, left);
+    let top = Math.min(rect.top, window.innerHeight - moviePopover.offsetHeight - 8);
+    top = Math.max(8, top);
+    moviePopover.style.left = `${left}px`;
+    moviePopover.style.top = `${top}px`;
+
+    // Rows scored before the summary scrape existed have no data-summary —
+    // lazy-fetch it once, same cache-miss pattern as the TV hover popover
+    // (TvService.get_show_detail), and cache on the element so later hovers
+    // skip the request entirely.
+    if (!d.summary && d.score && d.score !== 'unmatched') {
+      fetchMovieSummary(link);
+    }
+  }
+
+  const movieSummaryInflight = new Map();
+
+  function fetchMovieSummary(link) {
+    const id = link.dataset.movieId;
+    if (movieSummaryInflight.has(id)) return;
+    const p = axios.get(`/movies/${id}/detail`).then(r => {
+      const summary = (r.data.movie && r.data.movie.summary) || '';
+      link.dataset.summary = summary;
+      movieSummaryInflight.delete(id);
+      if (hoverPoster === link) {
+        const el = moviePopover.querySelector('.movie-popover-summary');
+        if (el) {
+          el.textContent = summary || 'No summary found.';
+          el.classList.toggle('muted', !summary);
+        }
+      }
+    }).catch(() => { movieSummaryInflight.delete(id); });
+    movieSummaryInflight.set(id, p);
+  }
+</script>
+</body>
+</html>

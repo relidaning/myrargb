@@ -1,0 +1,25 @@
+# Environment overrides use MYRARGB_<UPPERCASE_KEY> (see docs/configuration.md).
+# Relative storage paths are anchored to the project root, never the caller's cwd.
+host = "0.0.0.0"
+port = 5000
+debug = false
+log_level = "INFO"
+log_path = "logs/app.log"
+database_path = "data/myrargb.db"
+bloom_path = "data/bf.bin"
+model_name = "t5-small"
+model_path = "data/my_finetuned_t5"
+training_output_path = "data/results"
+training_log_path = "logs/training"
+kafka_bootstrap_servers = "kafka:9092"
+kafka_probe_timeout = 3.0
+# Retry broker discovery after an outage, instead of caching failure forever.
+kafka_probe_cache_seconds = 30.0
+background_jobs = true
+tvmaze_base_url = "https://api.tvmaze.com"
+tvmaze_timeout = 10.0
+tvmaze_rate_limit_delay = 0.3
+tvmaze_poll_interval = 21600
+tvmaze_days_back = 7
+tvmaze_days_forward = 14
+chrome_url = "http://localhost:4444/wd/hub"

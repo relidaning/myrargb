@@ -7,3 +7,7 @@ data/
 .venv/
 .env
 
+
+config/local.toml
+
+logs/
