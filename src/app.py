@@ -12,7 +12,6 @@ from db.service import MovieService
 from db.tv_service import TvService
 from db_model import Movie
 from model.model import model
-from db.service import _bloom
 from utils.kafka_utils import ConsumerUtil
 from workflow import Workflow
 from threading import Event, Thread
@@ -228,18 +227,7 @@ def produce_summary_backlog():
 
 @app.route("/deduplicate", methods=["GET"])
 def deduplicate():
-    items = service.get_items(workflow=Workflow.DEDUPLICATION)
-    count = 0
-    for item in items:
-        title = item.title
-        if not title:
-            continue
-        if _bloom.hasItem(title):
-            movieRepository.delete(item.id)
-            logger.info(f"Duplicate removed: {title}")
-            count += 1
-        else:
-            _bloom.add(title)
+    count = service.deduplicate()
     return jsonify(
         {"status": "success", "message": f"Deduplication completed, {count} removed."}
     )

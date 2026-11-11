@@ -28,7 +28,7 @@ def challenge_reason(html, headers=None):
     lower = html.lower()
     if any(marker in lower for marker in (
         'id="challenge-form"', "id='challenge-form'", '_cf_chl_opt',
-        'cf-chl-widget', 'cf-chl-error',
+        'cf-chl-widget', 'cf-chl-error', '<title>just a moment',
     )):
         return 'Cloudflare verification'
     if '/cdn-cgi/challenge-platform/' in lower and any(marker in lower for marker in (

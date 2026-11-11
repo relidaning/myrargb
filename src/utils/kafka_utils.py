@@ -39,9 +39,23 @@ class ProducerUtil:
             self._checked_at = time.monotonic()
         return self._available_cache
 
+    @staticmethod
+    def _on_delivery(err, msg):
+        if err is not None:
+            logger.error(f"[x] Kafka delivery to {msg.topic()} failed: {err}")
+
     def produce(self, topic: str, task: dict):
+        value = json.dumps(task).encode("utf-8")
         try:
-            self.producer.produce(topic, json.dumps(task).encode("utf-8"))
+            try:
+                self.producer.produce(topic, value, on_delivery=self._on_delivery)
+            except BufferError:
+                # Local queue full: serve delivery reports to free slots, retry once.
+                self.producer.poll(1)
+                self.producer.produce(topic, value, on_delivery=self._on_delivery)
+            # Serve delivery reports; librdkafka only frees a delivered message
+            # once its report is polled, so without this the queue fills up for good.
+            self.producer.poll(0)
         except KafkaException:
             self._available_cache = None
             raise
@@ -77,7 +91,13 @@ class ConsumerUtil:
                 data = val.decode("utf-8")
                 logger.info(f"[v] Consumer in {group_id} received: {data}")
                 callback(data)
-                consumer.commit(msg)
+                try:
+                    consumer.commit(msg)
+                except KafkaException as e:
+                    # A failed commit (broker restart, rebalance) must not end
+                    # this loop, or the consumer thread dies silently. The
+                    # message may be redelivered, as it would be after a restart.
+                    logger.warning(f"[!] Commit failed in {group_id}: {e}")
 
         except KeyboardInterrupt:
             print("stopping consumer")

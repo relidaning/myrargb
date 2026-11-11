@@ -96,9 +96,13 @@ driver = None
 try:
     # Context routing never contacts external domains, even if a fixture changes.
     driver = PlaywrightDriver()
-    driver._context.route('**/*', lambda route: route.continue_()
-                          if urlsplit(route.request.url).hostname == '127.0.0.1' else route.abort())
+    driver._executor.submit(lambda: driver._context.route('**/*', lambda route: route.continue_()
+                          if urlsplit(route.request.url).hostname == '127.0.0.1' else route.abort())).result()
     assert 'lista2t' in driver.fetch(base + '/normal')
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as callers:
+        results = list(callers.map(driver.fetch, [base + '/normal'] * 4))
+        assert all('lista2t' in html for html in results)
     assert 'lista2t' in driver.fetch(base + '/transient')
     for path, kind in [('/blocked?token=do-not-store', BrowserChallengeError), ('/error', BrowserFetchError)]:
         try:
@@ -126,16 +130,21 @@ try:
             raise AssertionError('Expected challenge')
         except BrowserChallengeError as error:
             assert error.diagnostic_id is None
-    # Exercise the rendered UI error handler in Chromium with network requests blocked.
-    import app
-    page = driver._context.new_page()
-    page.evaluate("window.axios = {get: (url) => url === '/tv/notifications' ? Promise.resolve({data:{notifications:[]}}) : Promise.reject({response:{data:{message:'Cloudflare verification blocked the crawl. Diagnostic: fixture.'}}})}")
-    page.set_content(app.app.test_client().get('/').get_data(as_text=True), wait_until='domcontentloaded')
-    page.evaluate('crawlrargb()')
-    page.wait_for_function("document.getElementById('toast').textContent.includes('Diagnostic: fixture')")
-    assert page.locator('#mask').evaluate("el => el.style.display") == 'none'
-    assert page.locator('#toast').is_visible()
-    page.close()
+    def check_ui():
+        # Exercise the rendered UI error handler in Chromium with network requests blocked.
+        import app
+        page = driver._context.new_page()
+        page.evaluate("window.axios = {get: (url) => url === '/tv/notifications' ? Promise.resolve({data:{notifications:[]}}) : Promise.reject({response:{data:{message:'Cloudflare verification blocked the crawl. Diagnostic: fixture.'}}})}")
+        page.set_content(app.app.test_client().get('/').get_data(as_text=True), wait_until='domcontentloaded')
+        page.evaluate('crawlrargb()')
+        page.wait_for_function("document.getElementById('toast').textContent.includes('Diagnostic: fixture')")
+        assert page.locator('#mask').evaluate("el => el.style.display") == 'none'
+        assert page.locator('#toast').is_visible()
+        page.close()
+    driver._executor.submit(check_ui).result()
+    # A dead shared browser is relaunched on the same worker thread.
+    driver._executor.submit(driver._browser.close).result()
+    assert 'lista2t' in driver.fetch(base + '/normal')
     driver.close()
     driver = None
     result = subprocess.run([sys.executable, str(PROJECT_ROOT / 'scripts/check_crawler.py'),

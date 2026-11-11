@@ -45,6 +45,8 @@ environment or ignored `.env`, rather than tracked TOML. URL-encode special
 characters in credentials. Browser startup and navigation errors omit raw
 Playwright exception strings so those credentials do not reach the API/logs.
 
+Playwright runs on one dedicated worker thread, so requests from Flask and
+Kafka share it safely; a dead browser is relaunched once.
 The current Playwright driver uses its native browser identity; the former
 hardcoded Chrome version/client hints and JavaScript fingerprint patches are
 removed. Legacy Selenium drivers are not selected by the default factory, and
@@ -74,8 +76,11 @@ they are ignored by Git and excluded from the Docker build context.
 A missing catalog table is now an error indicating an unexpected page, rather
 than an empty result. A present table with no movie rows remains a valid empty
 catalog result. An IMDb browser failure is propagated without marking a movie
-permanently `unmatched`. Records completed before a later failure remain stored;
-this change does not redesign incremental checkpoint recovery.
+permanently `unmatched`. Records completed before a later failure remain stored. The merged incremental
+catch-up fix keeps the previous range boundary until a rerun reaches it, walking
+past already-stored URLs after an interruption. This does not repair historical
+gaps or redesign interrupted first-ever crawls. The original `collected` schema
+uses SQLite row IDs through its repository, without a data migration.
 
 ## If verification still fails
 

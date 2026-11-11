@@ -11,7 +11,7 @@ from typing import List
 from crawler import ImdbCrawler, RargbCrawler
 from browserdriver.errors import BrowserFetchError
 from model.model import model
-from utils.bloom_utils import BloomUtils
+from utils.bloom_utils import BloomUtils, normalize
 
 # Module-level singletons — shared state across requests without repeated init cost.
 _bloom = BloomUtils()
@@ -143,6 +143,12 @@ class MovieService:
         every item on a page falls inside the collected range, the crawl stops
         — we've caught up with previously crawled territory.
 
+        The range's end only moves forward once the crawl has reached the old
+        end. Until then the newer items are a separate island: recording them
+        as the new end would put the uncrawled stretch in between "inside the
+        range", and a crawl cut short (failed page fetch, crash) would skip it
+        for good. A rerun instead walks past the island's known URLs.
+
         Non-incremental mode crawls the single requested page with no range
         checks (manual UI use).
         """
@@ -157,6 +163,8 @@ class MovieService:
             current_page = 1
             page_start = range_start
             page_end = range_end
+            # Nothing to catch up to when there is no earlier range.
+            reached_range = not range_end
 
             crawler = RargbCrawler()
             try:
@@ -168,6 +176,13 @@ class MovieService:
 
                     new_on_page = 0
                     for item in items:
+                        if range_end and item.added and item.added <= range_end:
+                            reached_range = True
+                        # Every item seen counts towards the new end, known URLs
+                        # too, so a walked-past island ends up inside the range.
+                        if item.added and (not page_end or item.added > page_end):
+                            page_end = item.added
+
                         if self.movieRepository.exists_by_url(item.url):
                             logger.debug(f"[v] Skipping known URL: {item.url}")
                             continue
@@ -219,10 +234,12 @@ class MovieService:
                     )
 
                     # Persist range after each page so a crash doesn't lose progress
-                    if incremental and page_start and page_end:
+                    if incremental and reached_range and page_start and page_end:
                         self._update_collected_range(page_start, page_end)
 
-                    if new_on_page == 0:
+                    # A page of known URLs above the old end is the island left
+                    # by an interrupted catch-up — keep going until the range.
+                    if new_on_page == 0 and (reached_range or not incremental):
                         break
 
                     current_page += 1
@@ -310,11 +327,27 @@ class MovieService:
         return movie
 
     def predict(self, movie: Movie):
+        # Idempotency guard: a redelivered or duplicated predict message
+        # (uncommitted offset, /produce/predict while a backlog drains) would
+        # otherwise find its own title in the bloom filter and delete the row.
+        try:
+            current = self.movieRepository.find_one(movie.id)
+        except Exception:
+            logger.info(f"[-] Movie {movie.id} no longer exists, skipping predict.")
+            return
+        if current.title:
+            logger.info(f"[-] Movie {movie.id} already predicted, skipping.")
+            return
+
         predicted_m = model.predict(movie)
         if not predicted_m or not predicted_m.title:
             return
 
-        if _bloom.hasItem(predicted_m.title):
+        # The bloom filter only says "maybe seen": its false-positive rate grows
+        # as it fills, so confirm against the stored titles before deleting.
+        if _bloom.hasItem(predicted_m.title) and self._title_exists(
+            predicted_m.title, exclude_id=movie.id
+        ):
             logger.info(
                 f"[x] Duplicate title '{predicted_m.title}', removing row."
             )
@@ -323,7 +356,44 @@ class MovieService:
 
         self.movieRepository.update(predicted_m)
         _bloom.add(predicted_m.title)
+        # model.predict() returns only id + title; send the full row so the
+        # IMDb step still has the year (and a corrected title) to match on.
+        current.title = predicted_m.title
         _producer.produce(
             "xyz.lidaning.myrargb.topics.crawl_imdb",
-            {"movie": predicted_m.model_dump()},
+            {"movie": current.model_dump()},
         )
+
+    def _title_exists(self, title: str, exclude_id: int | None) -> bool:
+        """True if another row already holds this title (compared normalized)."""
+        normed = normalize(title)
+        rows = self.movieRepository.execute_sql(
+            "SELECT id, title FROM movies WHERE id != ? AND title IS NOT NULL AND title != ''",
+            (exclude_id or 0,),
+        )
+        return any(normalize(r.title) == normed for r in rows)
+
+    def deduplicate(self) -> int:
+        """Delete rows whose normalized title repeats an earlier row's; returns the count.
+
+        Compares the stored titles themselves, not the bloom filter: the filter
+        is persisted and already holds every predicted title, so asking it
+        would report each row as a duplicate of itself.
+        """
+        rows = self.movieRepository.execute_sql(
+            "SELECT id, title FROM movies WHERE title IS NOT NULL AND title != '' ORDER BY id"
+        )
+        seen = set()
+        count = 0
+        for row in rows:
+            normed = normalize(row.title)
+            if not normed:
+                continue
+            if normed in seen:
+                self.movieRepository.delete(row.id)
+                logger.info(f"Duplicate removed: {row.title}")
+                count += 1
+            else:
+                seen.add(normed)
+                _bloom.add(row.title)
+        return count

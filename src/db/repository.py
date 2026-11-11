@@ -98,7 +98,18 @@ class BaseRepository(Generic[T]):
         return row[0] if row else 0
 
 
-class CollectedRepository(BaseRepository[Collected]): ...
+class CollectedRepository(BaseRepository[Collected]):
+    def getMany(self) -> List[Collected]:
+        # The original collected schema has no explicit id column. Expose its
+        # existing rowid to the model instead of requiring a storage migration.
+        return self.execute_sql('SELECT rowid AS id, start, end FROM collected')
+
+    def update(self, model: Collected) -> bool:
+        db.cur.execute('UPDATE collected SET start = ?, end = ? WHERE rowid = ?',
+                       (model.start, model.end, model.id))
+        db.conn.commit()
+        return True
+
 
 
 class ConfigRepository(BaseRepository[Config]): ...

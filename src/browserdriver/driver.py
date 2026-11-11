@@ -5,6 +5,7 @@ from utils.settings import settings
 from abc import ABC, abstractmethod
 import undetected_chromedriver as uc
 import json
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit, unquote
 from browserdriver.errors import BrowserFetchError, BrowserChallengeError, challenge_reason
@@ -78,6 +79,16 @@ class UndetectedChromeBrowserDriver(BrowserDriver):
 
 class PlaywrightDriver(BrowserDriver):
     def __init__(self):
+        # All sync Playwright objects must live on the thread that created them.
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='playwright')
+        self._closed = False
+        try:
+            self._executor.submit(self._launch).result()
+        except Exception:
+            self._executor.shutdown()
+            raise
+
+    def _launch(self):
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
         try:
@@ -161,7 +172,21 @@ class PlaywrightDriver(BrowserDriver):
         return urlunsplit((parts.scheme, host, parts.path, '', ''))
 
     def fetch(self, url: str) -> str:
-        page = self._context.new_page()
+        return self._executor.submit(self._fetch, url).result()
+
+    def _fetch(self, url: str) -> str:
+        try:
+            page = self._context.new_page()
+        except Exception:
+            # Recover once after a crashed/disconnected browser. Do not log raw
+            # Playwright exceptions: their URLs may include proxy credentials.
+            logger.warning('Browser unusable; relaunching once.')
+            self._shutdown()
+            self._launch()
+            try:
+                page = self._context.new_page()
+            except Exception:
+                raise BrowserFetchError('Browser unavailable after relaunch.') from None
         latest = [None]
 
         def track_response(response):
@@ -201,11 +226,20 @@ class PlaywrightDriver(BrowserDriver):
         finally:
             page.close()
 
+    def _shutdown(self):
+        for stop in (self._browser.close, self._pw.stop):
+            try:
+                stop()
+            except Exception:
+                logger.warning('Browser shutdown step failed.')
+
     def close(self):
-        try:
-            self._browser.close()
-        finally:
-            self._pw.stop()
+        if not self._closed:
+            self._closed = True
+            try:
+                self._executor.submit(self._shutdown).result()
+            finally:
+                self._executor.shutdown()
 
 
 class DriverFactory:
