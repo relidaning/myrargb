@@ -32,8 +32,10 @@ def handle_crawl_imdb(msg: str):
         data: dict = json.loads(msg)
         movie: Movie = Movie(**data["movie"])
         _service.crawl_imdb(movie)
+        return True
     except Exception:
         logger.exception("[x] crawl_imdb handler failed")
+        return False
 
 
 def handle_crawl_tvmaze(msg: str):

@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from urllib.parse import urlsplit, urlunsplit, unquote
 from browserdriver.errors import BrowserFetchError, BrowserChallengeError, challenge_reason
+from browserdriver.session import debugger_websocket
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,18 @@ class PlaywrightDriver(BrowserDriver):
     def _launch(self):
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
+        self._owns_browser = settings.browser_mode != 'session'
         try:
+            if not self._owns_browser:
+                self._browser = self._pw.chromium.connect_over_cdp(
+                    debugger_websocket(settings.browser_cdp_url, settings.browser_navigation_timeout),
+                    timeout=settings.browser_navigation_timeout * 1000)
+                if not self._browser.contexts:
+                    raise BrowserFetchError('The connected browser has no default session.')
+                # Reuse the browser's existing cookies/session; never copy a personal profile.
+                self._context = self._browser.contexts[0]
+                logger.info('Browser route: existing Chrome session (network settings inherited).')
+                return
             options = {
                 "headless": settings.browser_headless,
                 "args": ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -115,10 +127,13 @@ class PlaywrightDriver(BrowserDriver):
             self._browser = self._pw.chromium.launch(**options)
             self._context = self._browser.new_context()
         except Exception:
-            if hasattr(self, '_browser'):
+            if self._owns_browser and hasattr(self, '_browser'):
                 self._browser.close()
             self._pw.stop()
-            raise BrowserFetchError('Browser startup failed; check browser installation, display and proxy settings.') from None
+            message = ('Could not connect to the Chrome session. Run scripts/open_crawler_browser.py first.'
+                       if not self._owns_browser else
+                       'Browser startup failed; check browser installation, display and proxy settings.')
+            raise BrowserFetchError(message) from None
         logger.info('Browser route: %s', 'explicit proxy' if settings.browser_proxy else 'direct')
 
     def _diagnostics(self, page, url, response, reason):
@@ -130,7 +145,8 @@ class PlaywrightDriver(BrowserDriver):
             'requested_url': self._safe_url(url),
             'final_url': self._safe_url(page.url),
             'status': response.status if response else None,
-            'proxy_mode': 'explicit' if settings.browser_proxy else 'direct',
+            'proxy_mode': ('existing session' if not self._owns_browser else
+                           'explicit' if settings.browser_proxy else 'direct'),
             'title': None,
             'cf_ray': None,
             'screenshot': None,
@@ -174,9 +190,56 @@ class PlaywrightDriver(BrowserDriver):
     def fetch(self, url: str) -> str:
         return self._executor.submit(self._fetch, url).result()
 
+    def _new_page(self):
+        if self._owns_browser:
+            return self._context.new_page()
+        # Playwright new_page activates its tab and can restore a minimized
+        # Chrome window. Create an inactive tab in the existing default session.
+        session = self._browser.new_browser_cdp_session()
+        target_id = None
+        selected = False
+        try:
+            target_id = session.send('Target.createTarget',
+                                     {'url': 'about:blank', 'background': True})['targetId']
+            deadline = time.monotonic() + settings.browser_navigation_timeout
+            while True:
+                # Other drivers share this browser context. A generic page event
+                # can belong to their tab; select only the target we created.
+                for candidate in self._context.pages:
+                    if candidate.is_closed():
+                        continue
+                    probe = None
+                    try:
+                        probe = self._context.new_cdp_session(candidate)
+                        info = probe.send('Target.getTargetInfo')['targetInfo']
+                        if info['targetId'] == target_id:
+                            selected = True
+                            return candidate
+                    except Exception:
+                        # Another client can close its own tab while we inspect it.
+                        continue
+                    finally:
+                        if probe is not None:
+                            try:
+                                probe.detach()
+                            except Exception:
+                                pass
+                if time.monotonic() >= deadline:
+                    raise BrowserFetchError('The new browser tab did not become available.')
+                # A protocol round trip pumps Playwright's pending page events.
+                session.send('Target.getTargetInfo', {'targetId': target_id})
+                time.sleep(.01)
+        finally:
+            if target_id and not selected:
+                try:
+                    session.send('Target.closeTarget', {'targetId': target_id})
+                except Exception:
+                    pass
+            session.detach()
+
     def _fetch(self, url: str) -> str:
         try:
-            page = self._context.new_page()
+            page = self._new_page()
         except Exception:
             # Recover once after a crashed/disconnected browser. Do not log raw
             # Playwright exceptions: their URLs may include proxy credentials.
@@ -184,7 +247,7 @@ class PlaywrightDriver(BrowserDriver):
             self._shutdown()
             self._launch()
             try:
-                page = self._context.new_page()
+                page = self._new_page()
             except Exception:
                 raise BrowserFetchError('Browser unavailable after relaunch.') from None
         latest = [None]
@@ -208,7 +271,9 @@ class PlaywrightDriver(BrowserDriver):
                 if remaining <= 0:
                     diagnostic_id, ray_id = self._diagnostics(page, url, latest[0], reason)
                     raise BrowserChallengeError(
-                        f'{reason} blocked the crawl. Open the URL in a normal browser to check access.',
+                        (f'{reason} requires attention in the dedicated Chrome window.'
+                         if not self._owns_browser else
+                         f'{reason} blocked the crawl. Use browser_mode=session to reuse a manually verified Chrome session.'),
                         diagnostic_id=diagnostic_id, ray_id=ray_id)
                 page.wait_for_timeout(min(500, remaining * 1000))
             if latest[0] and latest[0].status >= 400:
@@ -227,7 +292,10 @@ class PlaywrightDriver(BrowserDriver):
             page.close()
 
     def _shutdown(self):
-        for stop in (self._browser.close, self._pw.stop):
+        # Stopping Playwright disconnects from an attached browser without closing
+        # the user's window or clearing the dedicated profile's session.
+        stops = (self._browser.close, self._pw.stop) if self._owns_browser else (self._pw.stop,)
+        for stop in stops:
             try:
                 stop()
             except Exception:

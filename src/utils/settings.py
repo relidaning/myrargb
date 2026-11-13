@@ -6,8 +6,6 @@ from pathlib import Path
 import os
 import tomllib
 
-from dotenv import load_dotenv
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -24,9 +22,22 @@ class Settings:
     model_path: Path
     training_output_path: Path
     training_log_path: Path
+    training_split_path: Path
+    training_seed: int
+    training_validation_fraction: float
+    training_epochs: int
+    training_learning_rate: float
+    training_weight_decay: float
+    training_batch_size: int
+    training_early_stopping_patience: int
+    training_max_length: int
+    training_num_beams: int
+    generation_min_new_tokens: int
     kafka_bootstrap_servers: str
     kafka_probe_timeout: float
     kafka_probe_cache_seconds: float
+    imdb_workers: int
+    kafka_max_poll_interval_ms: int
     background_jobs: bool
     tvmaze_base_url: str
     tvmaze_timeout: float
@@ -38,13 +49,19 @@ class Settings:
     browser_proxy: str = field(repr=False)
     browser_headless: bool
     browser_navigation_timeout: float
+    crawl_page_attempts: int
+    crawl_page_retry_delay: float
     browser_challenge_wait: float
     browser_diagnostics_path: Path
+    browser_mode: str
+    browser_cdp_url: str
+    browser_profile_path: Path
+    browser_executable: str
+    browser_session_display: str
 
 
 def load_settings(environ=None) -> Settings:
     if environ is None:
-        load_dotenv(PROJECT_ROOT / '.env', override=False)
         environ = os.environ
     with (PROJECT_ROOT / 'config/defaults.toml').open('rb') as source:
         values = tomllib.load(source)
@@ -75,9 +92,17 @@ def load_settings(environ=None) -> Settings:
                 if isinstance(raw, bool) or (kind is int and isinstance(raw, float)):
                     raise ValueError('expected a number of the declared type')
                 raw = kind(raw)
-                minimum = 0 if name in ('tvmaze_rate_limit_delay', 'tvmaze_days_back', 'tvmaze_days_forward', 'browser_challenge_wait') else 1e-9
+                minimum = 0 if name in ('tvmaze_rate_limit_delay', 'tvmaze_days_back', 'tvmaze_days_forward', 'browser_challenge_wait', 'training_seed', 'training_weight_decay', 'crawl_page_retry_delay', 'generation_min_new_tokens') else 1e-9
                 if not minimum <= raw < float('inf'):
                     raise ValueError('outside supported range')
+                if name == 'training_validation_fraction' and not 0 < raw < 1:
+                    raise ValueError('expected fraction between 0 and 1')
+                if name == 'training_seed' and raw >= 2 ** 32:
+                    raise ValueError('expected seed below 2**32')
+                if name == 'training_max_length' and raw < 2:
+                    raise ValueError('expected at least two tokens')
+                if name == 'kafka_max_poll_interval_ms' and raw > 86400000:
+                    raise ValueError('expected at most 86400000 milliseconds')
                 if name == 'port' and raw > 65535:
                     raise ValueError('expected port in 1..65535')
             elif name == 'browser_proxy':
@@ -97,6 +122,18 @@ def load_settings(environ=None) -> Settings:
                     raw = Path(raw).expanduser()
                     if not raw.is_absolute():
                         raw = PROJECT_ROOT / raw
+                elif name == 'browser_mode':
+                    if raw not in ('managed', 'session'):
+                        raise ValueError('expected managed or session')
+                elif name == 'browser_session_display':
+                    if raw not in ('visible', 'background', 'headless'):
+                        raise ValueError('expected visible, background or headless')
+                elif name == 'browser_cdp_url':
+                    endpoint = urlsplit(raw)
+                    if (endpoint.scheme != 'http' or endpoint.hostname not in ('localhost', '127.0.0.1', '::1')
+                            or not endpoint.port or endpoint.username or endpoint.password
+                            or endpoint.path not in ('', '/') or endpoint.query or endpoint.fragment):
+                        raise ValueError('expected loopback HTTP debugging endpoint with explicit port')
                 elif name == 'log_level':
                     raw = raw.upper()
                     if raw not in ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'):
@@ -105,6 +142,8 @@ def load_settings(environ=None) -> Settings:
         except (ValueError, TypeError, OverflowError):
             # Never echo a resolved value; an endpoint may contain credentials.
             raise ValueError(f'Invalid setting {name} ({key})') from None
+    if values['generation_min_new_tokens'] >= min(65, values['training_max_length']):
+        raise ValueError('Invalid setting generation_min_new_tokens: must fit prediction and evaluation length limits')
     return Settings(**values)
 
 

@@ -4,18 +4,38 @@ host = "0.0.0.0"
 port = 5000
 debug = false
 log_level = "INFO"
-log_path = "logs/app.log"
+# strftime pattern, evaluated in UTC; daily files append and roll over automatically.
+log_path = "logs/%Y-%m-%d.log"
 database_path = "data/myrargb.db"
 bloom_path = "data/bf.bin"
 model_name = "t5-small"
 model_path = "data/my_finetuned_t5"
 training_output_path = "data/results"
 training_log_path = "logs/training"
+# Reused across runs: keep titles in validation out of subsequent training.
+# Change this path deliberately to create a different validation split.
+training_split_path = "data/training/split.json"
+training_seed = 42
+training_validation_fraction = 0.2
+training_epochs = 50
+training_learning_rate = 0.00002
+training_weight_decay = 0.01
+training_batch_size = 2
+training_early_stopping_patience = 3
+training_max_length = 64
+training_num_beams = 4
+# Allow short titles to finish without forcing extra words (prediction and evaluation).
+generation_min_new_tokens = 1
 kafka_bootstrap_servers = "kafka:9092"
 kafka_probe_timeout = 3.0
 # Retry broker discovery after an outage, instead of caching failure forever.
 kafka_probe_cache_seconds = 30.0
 background_jobs = true
+# Parallel IMDb lookups, including messages from the same Kafka partition.
+# Each slot owns a browser in managed mode; start small to limit memory/load.
+imdb_workers = 3
+# Covers a bounded batch including navigation retries and plot-summary fetches.
+kafka_max_poll_interval_ms = 900000
 
 tvmaze_base_url = "https://api.tvmaze.com"
 tvmaze_timeout = 10.0
@@ -27,9 +47,23 @@ chrome_url = "http://localhost:4444/wd/hub"
 
 # Playwright routing is explicit: empty means direct, independent of HTTP_PROXY.
 # Put proxy credentials in MYRARGB_BROWSER_PROXY, not in tracked configuration.
-browser_proxy = ""
+browser_proxy = "http://127.0.0.1:10808"
 browser_headless = true
 browser_navigation_timeout = 30.0
+# Retry a transient catalog navigation failure on the same page before stopping.
+# Verification challenges and unexpected layouts require attention immediately.
+crawl_page_attempts = 3
+crawl_page_retry_delay = 2.0
 # Passive wait for an interstitial to finish; no automated CAPTCHA interaction.
 browser_challenge_wait = 10.0
 browser_diagnostics_path = "logs/browser"
+
+# managed: launch an isolated browser; session: reuse dedicated visible Chrome.
+browser_mode = "session"
+# Keep the debugging endpoint on loopback. Docker needs a separate tunnel.
+browser_cdp_url = "http://127.0.0.1:9222"
+browser_profile_path = "data/browser-session"
+browser_executable = "google-chrome"
+
+# Dedicated Chrome launcher: visible, background (Linux off-screen display), or headless.
+browser_session_display = "background"

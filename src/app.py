@@ -1,9 +1,9 @@
 import logging
 import os
-from logging.handlers import RotatingFileHandler
+from utils.job_metrics import DailyFileHandler, utc_formatter
 
 from utils.settings import settings
-from browserdriver.errors import BrowserFetchError
+from browserdriver.errors import BrowserFetchError, UnexpectedPageError
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 
@@ -34,10 +34,11 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s.%(funcName)s:%(lineno)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        RotatingFileHandler(settings.log_path, maxBytes=10 * 1024 * 1024, backupCount=3),
+        DailyFileHandler(settings.log_path),
     ],
 )
-
+for handler in logging.getLogger().handlers:
+    handler.setFormatter(utc_formatter())
 
 app = Flask(__name__)
 # Without this, Jinja caches templates when debug is off — bind-mounted
@@ -68,6 +69,9 @@ def index():
     if sort not in SORT_OPTIONS:
         sort = DEFAULT_SORT
     order_by = SORT_OPTIONS[sort]
+    media = request.args.get('media', 'all')
+    if media not in ('all', 'movie', 'tv', 'unknown'):
+        media = 'all'
 
     offset = page_offset(page)
     movies = service.get_items(
@@ -76,15 +80,28 @@ def index():
         offset=offset,
         order_by=order_by,
         search=query or None,
+        media_type=None if media == 'all' else media,
     )
-    total = service.count_items(workflow=Workflow.NONE, search=query or None)
+    total = service.count_items(workflow=Workflow.NONE, search=query or None,
+                                media_type=None if media == 'all' else media)
     pages = page_range(page, total_pages(total))
 
-    movies_to_train = service.get_items(
-        workflow=Workflow.TRAINING, limit=100, order_by="id DESC"
-    )
-    trainable_count = len(movies_to_train)
-    finetunable = trainable_count >= 20
+    from model.training_data import clean_target, prepare_split, read_manifest
+    training_items = service.get_training_items()
+    valid_count = sum(bool(clean_target(row.title_accurate)) and bool(row.filename and row.filename.strip())
+                      for row in training_items)
+    trainable_count = 0
+    pending_validation_count = 0
+    try:
+        split = prepare_split(training_items, settings.training_seed, settings.training_validation_fraction,
+                              read_manifest(settings.training_split_path))
+        pending_ids = {row.id for row in training_items if row.trained_flag != '1'}
+        trainable_count = sum(row['id'] in pending_ids for row in split.train)
+        pending_validation_count = sum(row['id'] in pending_ids for row in split.validation)
+    except ValueError:
+        # Invalid/insufficient split must not break catalog browsing or offer training.
+        pass
+    finetunable = valid_count >= 20
 
     return render_template(
         "index.html",
@@ -92,11 +109,13 @@ def index():
         page=page,
         q=query,
         sort=sort,
+        media=media,
         has_next=has_next_page(total, page),
         total_pages=total_pages(total),
         pages=pages,
         finetunable=finetunable,
         trainable_count=trainable_count,
+        pending_validation_count=pending_validation_count,
     )
 
 
@@ -121,6 +140,45 @@ def crawl_from_rargb():
             "message": "Crawling completed.",
         }
     )
+
+
+@app.post("/items/<int:item_id>/mismatch")
+def rematch_item(item_id):
+    try:
+        current = movieRepository.find_one(item_id)
+    except Exception:
+        return jsonify(status="error", message="Item not found."), 404
+    from db.service import _imdb_crawler_slots, _get_imdb_crawler
+    try:
+        with _imdb_crawler_slots:
+            result = _get_imdb_crawler().crawl(current, exact=True)
+    except UnexpectedPageError:
+        return jsonify(status="error", message="IMDb search page could not be read. Please retry or report this item."), 502
+    except BrowserFetchError:
+        return jsonify(status="error", message="IMDb is unavailable. Please retry."), 503
+    if not result or result.score == "unmatched":
+        return jsonify(status="error", message="No unique verified exact match. Edit the title or check its year."), 422
+    # Clear metadata belonging to the previous match, including missing fields.
+    from db.db import db
+    with db.conn:
+        cursor = db.conn.execute(
+            "UPDATE items SET title=?,score=?,poster=?,summary=?,genre=? "
+            "WHERE id=? AND filename IS ? AND title IS ? AND title_accurate IS ?",
+            (result.title, result.score, result.poster, result.summary, result.genre,
+             item_id, current.filename, current.title, current.title_accurate))
+    if cursor.rowcount != 1:
+        return jsonify(status="error", message="Item changed during lookup; retry."), 409
+    return jsonify(status="success", message="Exact IMDb match verified.")
+
+
+@app.delete("/items/<int:item_id>/duplicate")
+def delete_duplicate_item(item_id):
+    from db.db import db
+    with db.conn:
+        cursor = db.conn.execute('DELETE FROM items WHERE id = ?', (item_id,))
+    if cursor.rowcount == 0:
+        return jsonify(status="error", message="Item not found."), 404
+    return jsonify(status="success", message="Item deleted.")
 
 
 @app.route("/movies/<int:item_id>/abandon", methods=["GET"])
@@ -152,11 +210,24 @@ def title_accurate(item_id):
 
 @app.route("/model/train", methods=["POST"])
 def train():
-    items = service.get_items(Workflow.TRAINING)
-    model.train(items)
-    for item in items:
-        movieRepository.update(Movie(id=item.id, trained_flag="1"))
-    return jsonify({"status": "success", "message": "Training have been done!"})
+    items = service.get_training_items()
+    try:
+        report = model.train(items)
+    except ValueError as error:
+        return jsonify(status="error", message=str(error)), 400
+    except RuntimeError:
+        logger.exception('Training failed.')
+        return jsonify(status="error", message="Training failed; see the application log."), 500
+    # Only optimizer-training rows are marked, and a concurrent correction stays pending.
+    from db.db import db
+    training_ids = set(report['training_ids'])
+    with db.conn:
+        for item in items:
+            if item.id in training_ids:
+                db.conn.execute("UPDATE items SET trained_flag='1' WHERE id=? AND filename IS ? "
+                                "AND title_accurate IS ?",
+                                (item.id, item.filename, item.title_accurate))
+    return jsonify(status="success", message="Training completed; best checkpoint saved.", report=report)
 
 
 @app.route("/predict", methods=["GET"])
@@ -377,6 +448,7 @@ def main():
                 "group_id": "xyz.lidaning.myrargb.consumers.crawl_imdb",
                 "topics": ["xyz.lidaning.myrargb.topics.crawl_imdb"],
                 "callback": handle_crawl_imdb,
+                "workers": settings.imdb_workers,
             },
             daemon=True,
         ).start()
@@ -405,7 +477,11 @@ def main():
 
         Thread(target=_tvmaze_poll_loop, daemon=True).start()
 
-    app.run(host=settings.host, port=settings.port, debug=DEBUG, use_reloader=False)
+    try:
+        app.run(host=settings.host, port=settings.port, debug=DEBUG, use_reloader=False)
+    finally:
+        from db.service import _imdb_crawler_slots
+        _imdb_crawler_slots.close()
 
 
 if __name__ == "__main__":

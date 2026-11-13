@@ -5,12 +5,8 @@ services:
       dockerfile: ./docker/Dockerfile
     ports:
       - "${MYRARGB_PORT:-5000}:${MYRARGB_PORT:-5000}"
-    env_file:
-      - .env
     environment:
       - FLASK_ENV=production
-      - CHROME_URL=http://browser:4444
-      - LOGGER_LEVEL=ERROR
       - HTTP_PROXY=http://172.17.0.1:10808
       - HTTPS_PROXY=http://172.17.0.1:10808
       - NVIDIA_VISIBLE_DEVICES=all
@@ -21,13 +17,28 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./app.py:/app/app.py:ro
-      - ./src:/app/src:ro
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./app.py
+        target: /app/app.py
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./src
+        target: /app/src
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     runtime: nvidia
     depends_on:
       - kafka
-      
+
 
   kafka:
     image: apache/kafka:4.3.0-rc1
@@ -49,6 +60,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 3
+      KAFKA_HEAP_OPTS: "-Xms128M -Xmx1024M"
       TZ: Asia/Shanghai
 
 

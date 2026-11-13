@@ -116,10 +116,26 @@ class ConfigRepository(BaseRepository[Config]): ...
 
 
 class MovieRepository(BaseRepository[Movie]):
+    def update_if_title_current(self, updated: Movie, expected: Movie) -> bool:
+        """Do not let an in-flight IMDb result overwrite a newer title correction."""
+        values = {key: value for key, value in updated.model_dump().items()
+                  if key != 'id' and value is not None}
+        if not values:
+            return False
+        assignments = ', '.join(f'{key} = ?' for key in values)
+        db.cur.execute(
+            f'UPDATE items SET {assignments} WHERE id = ? AND filename IS ? '
+            'AND title IS ? AND title_accurate IS ?',
+            (*values.values(), expected.id, expected.filename, expected.title, expected.title_accurate),
+        )
+        changed = db.cur.rowcount == 1
+        db.conn.commit()
+        return changed
+
     def exists_by_url(self, url: str) -> bool:
         if not url:
             return False
-        sql = "SELECT 1 FROM movies WHERE url = ? LIMIT 1"
+        sql = "SELECT 1 FROM items WHERE url = ? LIMIT 1"
         db.cur.execute(sql, (url,))
         return db.cur.fetchone() is not None
 

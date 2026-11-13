@@ -30,7 +30,7 @@ Open `http://localhost:5000`. Click **Crawl RARGB!** to start an incremental cra
 ## Configuration
 
 Edit the commented defaults in [`config/defaults.toml`](config/defaults.toml), or use an optional local TOML file
-and environment overrides. Paths resolve from the project root.
+and process environment overrides. `.env` is not loaded. Paths resolve from the project root.
 
 ## Project layout
 
@@ -54,3 +54,16 @@ Kafka or database writes. Browser proxy/wait settings live in
 `config/defaults.toml`; failure screenshots and metadata go to `logs/browser/`.
 See [crawler troubleshooting](docs/crawler-troubleshooting.md) for setup and
 Cloudflare error diagnosis.
+
+For manual verification and session reuse, open a dedicated Chrome window with
+`.venv/bin/python scripts/open_crawler_browser.py`, then follow the
+[session setup instructions](docs/crawler-troubleshooting.md#reuse-a-manually-verified-chrome-session).
+
+For crawling without desktop windows on Linux, use the verified
+[background session mode](docs/crawler-troubleshooting.md#run-without-desktop-windows-on-linux).
+
+The torrent catalog supports movies and TV episodes/season packs, with media
+filters and release-aware deduplication. See [mixed catalog fields and migration](docs/mixed-catalog.md).
+
+See [title training](docs/training.md) for corrected-title replay, stable validation,
+generated-title accuracy, checkpoint selection, and training configuration.

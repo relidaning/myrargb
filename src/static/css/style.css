@@ -647,3 +647,8 @@ dialog::backdrop { background: rgba(0,0,0,0.65); }
   transition: opacity 0.3s;
 }
 .hidden { opacity: 0; pointer-events: none; }
+
+.release-info small { display: block; margin-top: 4px; color: var(--text-secondary, #9ca3af); }
+.media-tag { display: inline-block; padding: 2px 7px; border: 1px solid #485168; border-radius: 5px; font-size: 12px; }
+
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }

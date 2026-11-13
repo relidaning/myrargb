@@ -25,6 +25,15 @@ class MyRargbDB:
         init_cur.execute("PRAGMA journal_mode=WAL")
         init_cur.execute("PRAGMA synchronous=NORMAL")
         init_cur.execute("PRAGMA busy_timeout=5000")
+        tables = {row[0] for row in init_cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if 'movies' in tables and 'items' not in tables:
+            from datetime import datetime, timezone
+            backups = _DB_PATH.parent / 'backups'
+            backups.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+            with sqlite3.connect(backups / f'items-migration-{stamp}.db') as target:
+                init_conn.backup(target)
+            init_cur.execute('ALTER TABLE movies RENAME TO items')
         self._create_tables(init_cur)
         self._migrate(init_cur)
         init_conn.commit()
@@ -63,7 +72,7 @@ class MyRargbDB:
 
     def _create_tables(self, cur):
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS movies (
+            CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT,
                 size TEXT,
@@ -136,11 +145,11 @@ class MyRargbDB:
         )
         try:
             cur.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_movies_url ON movies(url)"
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_url ON items(url)"
             )
         except sqlite3.IntegrityError:
             logger.warning(
-                "Could not create unique index on movies(url) — "
+                "Could not create unique index on items(url) — "
                 "duplicate URLs exist. Run deduplication to clean them."
             )
         cur.execute(
@@ -155,17 +164,17 @@ class MyRargbDB:
 
     def _migrate(self, cur):
         table_migrations = {
-            "movies": {
-                "score": "ALTER TABLE movies ADD COLUMN score TEXT",
-                "genre": "ALTER TABLE movies ADD COLUMN genre TEXT",
-                "poster": "ALTER TABLE movies ADD COLUMN poster TEXT",
-                "title_accurate": "ALTER TABLE movies ADD COLUMN title_accurate TEXT",
-                "trained_flag": "ALTER TABLE movies ADD COLUMN trained_flag TEXT DEFAULT '0'",
-                "marked": "ALTER TABLE movies ADD COLUMN marked TEXT DEFAULT '00'",
-                "year": "ALTER TABLE movies ADD COLUMN year TEXT",
-                "seed": "ALTER TABLE movies ADD COLUMN seed INTEGER",
-                "leech": "ALTER TABLE movies ADD COLUMN leech INTEGER",
-                "summary": "ALTER TABLE movies ADD COLUMN summary TEXT",
+            "items": {
+                "score": "ALTER TABLE items ADD COLUMN score TEXT",
+                "genre": "ALTER TABLE items ADD COLUMN genre TEXT",
+                "poster": "ALTER TABLE items ADD COLUMN poster TEXT",
+                "title_accurate": "ALTER TABLE items ADD COLUMN title_accurate TEXT",
+                "trained_flag": "ALTER TABLE items ADD COLUMN trained_flag TEXT DEFAULT '0'",
+                "marked": "ALTER TABLE items ADD COLUMN marked TEXT DEFAULT '00'",
+                "year": "ALTER TABLE items ADD COLUMN year TEXT",
+                "seed": "ALTER TABLE items ADD COLUMN seed INTEGER",
+                "leech": "ALTER TABLE items ADD COLUMN leech INTEGER",
+                "summary": "ALTER TABLE items ADD COLUMN summary TEXT",
             },
             "tv_shows": {
                 "language": "ALTER TABLE tv_shows ADD COLUMN language TEXT",
@@ -179,6 +188,8 @@ class MyRargbDB:
             for col, sql in migrations.items():
                 if col not in existing:
                     cur.execute(sql)
+        from db.catalog_schema import migrate_catalog
+        migrate_catalog(cur.connection)
         cur.connection.commit()
 
 

@@ -2,7 +2,9 @@ import json
 import logging
 import time
 from threading import Lock
+from concurrent.futures import ThreadPoolExecutor
 from utils.settings import settings
+from utils.job_metrics import record_job
 from typing import Callable, List
 
 from confluent_kafka import Consumer, Producer, KafkaException
@@ -66,41 +68,59 @@ class ProducerUtil:
 
 
 class ConsumerUtil:
-    def spawn(self, group_id: str, topics: List[str], callback: Callable[[str], None]):
+    @staticmethod
+    def _run_job(callback, data, group):
+        started = time.monotonic()
+        outcome = 'failure'
+        try:
+            result = callback(data)
+            outcome = 'failure' if result is False else 'success'
+            return result
+        finally:
+            record_job(group, outcome, time.monotonic() - started)
+
+    def spawn(self, group_id: str, topics: List[str], callback: Callable[[str], None], workers=1):
+        if type(workers) is not int or workers < 1:
+            raise ValueError('workers must be a positive integer')
         consumer = Consumer(
             {
                 "bootstrap.servers": settings.kafka_bootstrap_servers,
                 "group.id": group_id,
-                "auto.offset.reset": "earliest",  # 没 offset 时从头读
-                "enable.auto.commit": False,  # 生产建议关闭自动提交
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+                "enable.auto.offset.store": False,
+                "max.poll.interval.ms": settings.kafka_max_poll_interval_ms,
             }
         )
         consumer.subscribe(topics)
+        logger.info('Consumer started: group=%s workers=%s', group_id, workers)
         try:
-            while True:
-                msg = consumer.poll(1.0)  # 1秒超时
-                if msg is None:
-                    continue
-                if msg.error():
-                    logger.error(f"Kafka error: {msg.error()}")
-                    continue
-
-                val = msg.value()
-                if val is None:
-                    continue
-                data = val.decode("utf-8")
-                logger.info(f"[v] Consumer in {group_id} received: {data}")
-                callback(data)
-                try:
-                    consumer.commit(msg)
-                except KafkaException as e:
-                    # A failed commit (broker restart, rebalance) must not end
-                    # this loop, or the consumer thread dies silently. The
-                    # message may be redelivered, as it would be after a restart.
-                    logger.warning(f"[!] Commit failed in {group_id}: {e}")
-
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='kafka-job') as executor:
+                while True:
+                    # Bounded batches allow parallel processing within a partition.
+                    # Only this thread touches the Kafka consumer. Commit in delivery
+                    # order after callbacks finish, so no unfinished offset is skipped.
+                    if workers == 1:
+                        message = consumer.poll(1.0)
+                        messages = [message] if message is not None else []
+                    else:
+                        messages = consumer.consume(num_messages=workers, timeout=1.0)
+                    pending = []
+                    for msg in messages:
+                        if msg.error():
+                            logger.error('Kafka error: %s', msg.error())
+                            continue
+                        if msg.value() is None:
+                            continue
+                        data = msg.value().decode('utf-8')
+                        pending.append((msg, executor.submit(self._run_job, callback, data, group_id)))
+                    for msg, future in pending:
+                        future.result()
+                        try:
+                            consumer.commit(message=msg, asynchronous=False)
+                        except KafkaException as error:
+                            logger.warning('Commit failed in %s: %s', group_id, error)
         except KeyboardInterrupt:
-            print("stopping consumer")
-
+            logger.info('Consumer stopping: group=%s', group_id)
         finally:
             consumer.close()

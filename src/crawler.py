@@ -1,9 +1,11 @@
 from bs4 import BeautifulSoup
+from utils.titles import title_key
 import argparse
 import re
 import time
 from urllib.parse import quote_plus
 from browserdriver.driver import DriverFactory
+from utils.media import release_metadata, effective_metadata, series_year, strip_episode_tags
 from browserdriver.errors import BrowserChallengeError, BrowserFetchError, UnexpectedPageError, challenge_reason
 import logging
 from db_model import Movie
@@ -107,6 +109,7 @@ class RargbCrawler:
                     added=cols[3].text.strip(),
                     seed=int(seed_text) if seed_text.isdigit() else None,
                     leech=int(leech_text) if leech_text.isdigit() else None,
+                    **release_metadata(a.text.strip(), cols[2].get_text(" ", strip=True)),
                 )
                 logger.debug(f"[v] Found item: {movie.filename}")
                 movies.append(movie)
@@ -120,7 +123,10 @@ class ImdbCrawler:
     def __init__(self):
         self._driver = DriverFactory().create_driver()
 
-    def crawl(self, item: Movie) -> Movie | None:
+    def close(self):
+        self._driver.close()
+
+    def crawl(self, item: Movie, exact=False) -> Movie | None:
         """Search IMDb for ``item`` and return a Movie with poster/title/score.
 
         Transient failures (network hiccups, WAF/browser issues) are retried
@@ -135,14 +141,22 @@ class ImdbCrawler:
         if not item:
             return None
 
+        media = effective_metadata(item)['media_type']
+        expected_year = series_year(item.filename) if media == 'tv' else item.year
         title = item.title_accurate if item.title_accurate else item.title
         if not title:
             logger.info(f"[x] item: {item} has no title yet.")
             return None
 
         # Only a model-predicted title needs cleaning; a user-corrected one is searched as typed.
-        query = title if item.title_accurate else clean_search_title(title, item.year)
+        query = title if item.title_accurate else clean_search_title(title, expected_year)
+        if media == 'tv':
+            query = strip_episode_tags(query)
         url = f"https://m.imdb.com/find/?q={quote_plus(query)}&ref_=chttvtp_nv_srb_sm"
+
+        if exact:
+            query = title_key(query)
+            url = f"https://www.imdb.com/find/?q={quote_plus(query)}&s=tt&exact=true&ref_=fn_ttl_ex"
 
         for attempt in range(1, IMDB_MAX_ATTEMPTS + 1):
             try:
@@ -163,23 +177,35 @@ class ImdbCrawler:
                         logger.info(
                             f"[x] Could not find result list (attempt {attempt}/{IMDB_MAX_ATTEMPTS})."
                         )
-                        raise ValueError("result list not found")
+                        raise UnexpectedPageError("IMDb search result list could not be parsed.")
 
                     lis = ul.find_all("li", {"class": "ipc-metadata-list-summary-item"})
                     if not lis or len(lis) == 0:
                         logger.info(f"[x] IMDb returned zero results for '{title}'.")
                         break  # genuine empty result set — not worth retrying
 
+                    verified = []
                     near = None  # first candidate within IMDB_YEAR_TOLERANCE, used if no exact year
                     for li in lis:
+                        description = li.get_text(' ', strip=True)
+                        is_series = re.search(r'\bTV\s+(?:Mini[ -]?)?Series\b|\bMini[ -]Series\b', description, re.I)
+                        is_episode = re.search(r'\bTV\s+Episode\b', description, re.I)
+                        if media == 'tv' and (not is_series or is_episode):
+                            continue
+                        if media == 'movie' and (is_series or is_episode):
+                            continue
                         li_img = li.find("img", {"class": "ipc-image"})
                         poster = li_img["src"] if li_img else None
-                        li_title = li.find("h3", {"class": "ipc-title__text"})
+                        li_title = li.find(class_="ipc-title__text")
                         found_title = (
-                            str(li_title.string)
-                            if li_title and li_title.string
+                            li_title.get_text(' ', strip=True)
+                            if li_title
                             else None
                         )
+                        if not found_title:
+                            raise UnexpectedPageError('IMDb result title could not be parsed.')
+                        if exact and title_key(found_title) != query:
+                            continue
                         li_score = li.find("span", {"class": "ipc-rating-star--rating"})
                         score = (
                             str(li_score.string)
@@ -190,10 +216,17 @@ class ImdbCrawler:
                         year = (
                             str(li_year.string) if li_year and li_year.string else None
                         )
-                        if item.year and year != item.year:
+                        if media == 'tv' and year:
+                            year_match = re.search(r'(?:19|20)\d{2}', year)
+                            year = year_match.group(0) if year_match else None
+                        if expected_year and year != expected_year:
                             logger.info(f"[x] Year mismatch: IMDb={year}, expected={item.year}, trying next result.")
-                            if near is None and _year_near(year, item.year):
+                            if not exact and near is None and _year_near(year, expected_year):
                                 near = Movie(id=item.id, poster=poster, title=found_title, score=score)
+                            continue
+
+                        if exact:
+                            verified.append((poster, found_title, score, li_title))
                             continue
 
                         title_a = li_title.find_parent("a") if li_title else None
@@ -211,6 +244,11 @@ class ImdbCrawler:
                             summary=summary,
                         )
 
+                    if exact and len(verified) == 1:
+                        poster, found_title, score, heading = verified[0]
+                        link = heading.find_parent('a')
+                        summary = self._fetch_summary(link['href']) if link and link.get('href') else None
+                        return Movie(id=item.id, poster=poster, title=found_title, score=score, summary=summary)
                     if near:
                         return near
 
@@ -228,6 +266,8 @@ class ImdbCrawler:
                 )
                 if attempt < IMDB_MAX_ATTEMPTS:
                     time.sleep(IMDB_RETRY_DELAY_SECONDS)
+                else:
+                    raise UnexpectedPageError('IMDb search page could not be parsed; please retry.') from None
 
         return Movie(id=item.id, score="unmatched")
 

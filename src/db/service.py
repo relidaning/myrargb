@@ -1,34 +1,35 @@
+from utils.media import effective_metadata, release_identity, strip_episode_tags
 import logging
 import json
 import re
 import sqlite3
-import threading
+import time
+from utils.settings import settings
 from db.repository import MovieRepository, CollectedRepository
 from db_model import Movie, Collected
 from utils.kafka_utils import ProducerUtil
 from workflow import Workflow
 from typing import List
 from crawler import ImdbCrawler, RargbCrawler
-from browserdriver.errors import BrowserFetchError
+from browserdriver.errors import BrowserFetchError, BrowserChallengeError, UnexpectedPageError
 from model.model import model
 from utils.bloom_utils import BloomUtils, normalize
+from utils.resource_pool import ResourcePool
+from utils.pager_utils import validate_order_by, PER_PAGE
 
 # Module-level singletons — shared state across requests without repeated init cost.
 _bloom = BloomUtils()
 _producer = ProducerUtil()
-_imdb_crawler: "ImdbCrawler | None" = None
-# Guards _imdb_crawler's single Playwright page/browser — the crawl_imdb Kafka
-# consumer thread and a Flask request thread (lazy detail-popover fetch) can
-# both reach for it; concurrent navigation on one page would interleave.
-_imdb_crawler_lock = threading.Lock()
+
+# Each slot owns its driver/executor; callers never navigate the same browser
+# concurrently. UI lookups share this bound with Kafka work.
+_imdb_crawler_slots = ResourcePool(
+    settings.imdb_workers, ImdbCrawler, lambda crawler: crawler.close())
 
 
 def _get_imdb_crawler() -> "ImdbCrawler":
-    global _imdb_crawler
-    if _imdb_crawler is None:
-        _imdb_crawler = ImdbCrawler()
-    return _imdb_crawler
-from utils.pager_utils import validate_order_by, PER_PAGE
+    return _imdb_crawler_slots.get()
+
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,12 @@ class MovieService:
         else:
             self.collectedRepository.insert(Collected(start=start, end=end))
 
+    def get_training_items(self) -> List[Movie]:
+        """All corrected examples, including previous runs, without pagination."""
+        return self.movieRepository.execute_sql(
+            "SELECT * FROM items WHERE title_accurate IS NOT NULL ORDER BY id"
+        )
+
     def get_items(
         self,
         workflow: Workflow,
@@ -73,10 +80,11 @@ class MovieService:
         offset=0,
         order_by="id DESC",
         search: str | None = None,
+        media_type: str | None = None,
     ) -> List[Movie]:
         order_by = validate_order_by(order_by)
 
-        exe_sql = " select id, filename, size, title, url, score, genre, poster, marked, title_accurate, trained_flag, added, year, seed, leech, summary from movies where 1=1 "
+        exe_sql = " select id, filename, size, title, url, score, genre, poster, marked, title_accurate, trained_flag, added, year, seed, leech, summary, media_type, release_scope, season, season_end, episode, episode_end from items where 1=1 "
 
         if workflow == Workflow.PREDICT:  # for prediction
             exe_sql += " and (title is null or title = '' ) and (trained_flag != '1') "
@@ -102,13 +110,16 @@ class MovieService:
             like = f"%{search}%"
             params.extend([like, like, like])
 
+        if media_type in ('movie', 'tv', 'unknown'):
+            exe_sql += " and COALESCE(media_type, 'unknown') = ? "
+            params.append(media_type)
         exe_sql += f" ORDER BY {order_by} "
         exe_sql += " LIMIT ? OFFSET ? "
         params.extend([limit, offset])
         movies = self.movieRepository.execute_sql(exe_sql, tuple(params))
         return movies
 
-    def count_items(self, workflow: Workflow, sql="", search: str | None = None) -> int:
+    def count_items(self, workflow: Workflow, sql="", search: str | None = None, media_type: str | None = None) -> int:
         where = " 1=1 "
 
         if workflow == Workflow.PREDICT:
@@ -133,6 +144,9 @@ class MovieService:
             like = f"%{search}%"
             params.extend([like, like, like])
 
+        if media_type in ('movie', 'tv', 'unknown'):
+            where += " and COALESCE(media_type, 'unknown') = ? "
+            params.append(media_type)
         return self.movieRepository.count(where, tuple(params))
 
     def crawl_rargb(self, incremental=True) -> bool:
@@ -169,7 +183,17 @@ class MovieService:
             crawler = RargbCrawler()
             try:
                 while True:
-                    items = crawler.crawl({"page": current_page})
+                    for attempt in range(1, settings.crawl_page_attempts + 1):
+                        try:
+                            items = crawler.crawl({"page": current_page})
+                            break
+                        except BrowserFetchError as error:
+                            if (isinstance(error, (BrowserChallengeError, UnexpectedPageError))
+                                    or attempt == settings.crawl_page_attempts):
+                                raise
+                            logger.warning('Catalog page %s navigation failed; retry %s/%s.',
+                                           current_page, attempt + 1, settings.crawl_page_attempts)
+                            time.sleep(settings.crawl_page_retry_delay)
                     if not items:
                         logger.info(f"[v] No items on page {current_page}, stopping.")
                         break
@@ -305,11 +329,18 @@ class MovieService:
         return len(items)
 
     def crawl_imdb(self, m: Movie):
-        with _imdb_crawler_lock:
-            updated_m = _get_imdb_crawler().crawl(m)
+        # Queued messages can predate a title repair. Search with the current row.
+        try:
+            current = self.movieRepository.find_one(m.id)
+        except Exception:
+            logger.info('Movie %s no longer exists; skipping IMDb task.', m.id)
+            return
+        with _imdb_crawler_slots:
+            updated_m = _get_imdb_crawler().crawl(current)
         if not updated_m:
             return
-        self.movieRepository.update(updated_m)
+        if not self.movieRepository.update_if_title_current(updated_m, current):
+            logger.info('Movie %s changed during IMDb lookup; stale result discarded.', m.id)
 
     def get_movie_detail(self, movie_id: int) -> Movie | None:
         """Full movie row for the hover popover. Served straight from the DB
@@ -319,10 +350,10 @@ class MovieService:
         """
         movie = self.movieRepository.find_one(movie_id)
         if movie and not movie.summary and movie.score and movie.score != "unmatched":
-            with _imdb_crawler_lock:
+            with _imdb_crawler_slots:
                 updated_m = _get_imdb_crawler().crawl(movie)
             if updated_m:
-                self.movieRepository.update(updated_m)
+                self.movieRepository.update_if_title_current(updated_m, movie)
                 movie = self.movieRepository.find_one(movie_id)
         return movie
 
@@ -335,7 +366,7 @@ class MovieService:
         except Exception:
             logger.info(f"[-] Movie {movie.id} no longer exists, skipping predict.")
             return
-        if current.title:
+        if current.title or current.title_accurate:
             logger.info(f"[-] Movie {movie.id} already predicted, skipping.")
             return
 
@@ -343,11 +374,15 @@ class MovieService:
         if not predicted_m or not predicted_m.title:
             return
 
+        for key, value in effective_metadata(current).items():
+            setattr(current, key, value)
+            setattr(predicted_m, key, value)
+        if current.media_type == 'tv':
+            predicted_m.title = strip_episode_tags(predicted_m.title)
+        candidate = current.model_copy(update={'title': predicted_m.title})
         # The bloom filter only says "maybe seen": its false-positive rate grows
         # as it fills, so confirm against the stored titles before deleting.
-        if _bloom.hasItem(predicted_m.title) and self._title_exists(
-            predicted_m.title, exclude_id=movie.id
-        ):
+        if _bloom.hasItem(predicted_m.title) and self._release_exists(candidate):
             logger.info(
                 f"[x] Duplicate title '{predicted_m.title}', removing row."
             )
@@ -364,36 +399,35 @@ class MovieService:
             {"movie": current.model_dump()},
         )
 
-    def _title_exists(self, title: str, exclude_id: int | None) -> bool:
-        """True if another row already holds this title (compared normalized)."""
-        normed = normalize(title)
+    def _release_exists(self, movie: Movie) -> bool:
+        key = release_identity(movie)
+        if key is None:
+            return False
         rows = self.movieRepository.execute_sql(
-            "SELECT id, title FROM movies WHERE id != ? AND title IS NOT NULL AND title != ''",
-            (exclude_id or 0,),
+            "SELECT * FROM items WHERE id != ? AND title IS NOT NULL AND title != ''",
+            (movie.id or 0,),
         )
-        return any(normalize(r.title) == normed for r in rows)
+        return any(release_identity(row) == key for row in rows)
 
     def deduplicate(self) -> int:
-        """Delete rows whose normalized title repeats an earlier row's; returns the count.
-
-        Compares the stored titles themselves, not the bloom filter: the filter
-        is persisted and already holds every predicted title, so asking it
-        would report each row as a duplicate of itself.
-        """
+        """Keep different episodes, packs, media types and movie years separate."""
         rows = self.movieRepository.execute_sql(
-            "SELECT id, title FROM movies WHERE title IS NOT NULL AND title != '' ORDER BY id"
+            "SELECT * FROM items WHERE title IS NOT NULL AND title != '' ORDER BY id"
         )
         seen = set()
         count = 0
         for row in rows:
-            normed = normalize(row.title)
-            if not normed:
+            key = release_identity(row)
+            if key is None:
                 continue
-            if normed in seen:
+            if key in seen:
+                # A title that was corrected by the user is also a training
+                # example; never delete it during catalog housekeeping.
+                if row.title_accurate:
+                    continue
                 self.movieRepository.delete(row.id)
-                logger.info(f"Duplicate removed: {row.title}")
                 count += 1
             else:
-                seen.add(normed)
+                seen.add(key)
                 _bloom.add(row.title)
         return count

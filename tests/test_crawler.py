@@ -51,7 +51,7 @@ class IsolatedCrawlerTests(unittest.TestCase):
                        MYRARGB_LOG_PATH=f'{directory}/app.log',
                        MYRARGB_BROWSER_DIAGNOSTICS_PATH=f'{directory}/browser',
                        MYRARGB_BROWSER_PROXY='', MYRARGB_BROWSER_HEADLESS='true',
-                       MYRARGB_BROWSER_CHALLENGE_WAIT='0.2', MYRARGB_BACKGROUND_JOBS='false')
+                       MYRARGB_BROWSER_CHALLENGE_WAIT='0.2', MYRARGB_CRAWL_PAGE_RETRY_DELAY='0', MYRARGB_BROWSER_MODE='managed', MYRARGB_BACKGROUND_JOBS='false')
             result = subprocess.run([str(ROOT / '.venv/bin/python'), '-c', code], cwd=directory,
                                     env=env, text=True, capture_output=True, timeout=45)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

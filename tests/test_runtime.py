@@ -15,7 +15,7 @@ from utils.settings import PROJECT_ROOT, load_settings
 class SettingsTests(unittest.TestCase):
     def test_precedence_and_relative_paths(self):
         defaults = load_settings({})
-        self.assertEqual(defaults.log_path, PROJECT_ROOT / 'logs/app.log')
+        self.assertEqual(defaults.log_path, PROJECT_ROOT / 'logs/%Y-%m-%d.log')
         self.assertEqual(defaults.training_log_path, PROJECT_ROOT / 'logs/training')
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'custom.toml'
@@ -38,6 +38,19 @@ class SettingsTests(unittest.TestCase):
                     load_settings({f'MYRARGB_{name.upper()}': value})
                 self.assertNotIn('secret', str(error.exception))
 
+    def test_dotenv_is_not_loaded(self):
+        import shutil
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'config').mkdir()
+            shutil.copy2(PROJECT_ROOT / 'config/defaults.toml', root / 'config/defaults.toml')
+            (root / '.env').write_text('MYRARGB_PORT=1234\nMYRARGB_IMDB_WORKERS=99\n')
+            with patch('utils.settings.PROJECT_ROOT', root), patch.dict(os.environ, {}, clear=True):
+                settings = load_settings()
+            self.assertEqual(settings.port, 5000)
+            self.assertEqual(settings.imdb_workers, 3)
+
     def test_unknown_file_setting_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'custom.toml'
@@ -58,13 +71,95 @@ class RuntimeTests(unittest.TestCase):
                        MYRARGB_DATABASE_PATH=f'{directory}/db/catalog.db',
                        MYRARGB_BLOOM_PATH=f'{directory}/bloom/filter.bin',
                        MYRARGB_LOG_PATH=f'{directory}/logs/app.log',
-                       MYRARGB_BACKGROUND_JOBS='false',
-                       MYRARGB_MODEL_PATH=f'{directory}/missing-model')
+                       MYRARGB_BROWSER_MODE='managed', MYRARGB_BACKGROUND_JOBS='false',
+                       MYRARGB_MODEL_PATH=f'{directory}/missing-model',
+                       MYRARGB_TRAINING_SPLIT_PATH=f'{directory}/training/split.json',
+                       MYRARGB_TRAINING_OUTPUT_PATH=f'{directory}/training/runs',
+                       MYRARGB_TRAINING_LOG_PATH=f'{directory}/training/logs')
             result = subprocess.run([str(PROJECT_ROOT / '.venv/bin/python'), '-c', code],
                                     cwd=directory, env=env, text=True, capture_output=True,
                                     timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return result.stdout
+
+    def test_rebuild_bloom_uses_shared_keys_without_changing_titles(self):
+        self.run_isolated('''
+import subprocess
+import sys
+import sqlite3
+from utils.settings import PROJECT_ROOT, settings
+from db.repository import MovieRepository
+from db_model import Movie
+from utils.bloom_utils import BloomUtils
+repo = MovieRepository()
+repo.insert(Movie(title='The.Matrix', title_accurate='THE MATRIX'))
+repo.insert(Movie(title='Amélie.'))
+BloomUtils().add('legacy title')
+result = subprocess.run([sys.executable, str(PROJECT_ROOT / 'scripts/rebuild_bloom.py')], capture_output=True, text=True)
+assert result.returncode == 0, result.stderr
+assert '2 normalized title keys' in result.stdout, result.stdout
+bloom = BloomUtils()
+for title in ['thematrix', 'The Matrix', 'THE.MATRIX', 'amélie']:
+    assert bloom.hasItem(title), title
+assert repo.find_one(1).title == 'The.Matrix'
+assert list((settings.database_path.parent / 'backups').glob('bloom-*.bin'))
+''')
+
+    def test_manual_rematch_and_duplicate_controls(self):
+        self.run_isolated('''
+from unittest.mock import patch
+import app
+from crawler import ImdbCrawler
+from db_model import Movie
+from browserdriver.errors import BrowserFetchError
+repo = app.movieRepository
+one = repo.insert(Movie(filename='Example.2020.1080p', title='Example', year='2020', score='8', poster='old', summary='old'))
+two = repo.insert(Movie(filename='Example.2020.720p', title='Example', year='2020'))
+client = app.app.test_client()
+assert b'Mismatch' in client.get('/').data
+with patch('crawler.DriverFactory.create_driver') as factory:
+    crawler = ImdbCrawler()
+    def candidate(title='Ex.am ple', year='2020', kind=''):
+        return f'<li class="ipc-metadata-list-summary-item"><a href="/title/tt123/"><h3 class="ipc-title__text">{title}</h3></a><li class="ipc-inline-list__item">{year}</li>{kind}<span class="ipc-rating-star--rating">7</span></li>'
+    def html(*rows):
+        return '<ul class="ipc-metadata-list--base">' + ''.join(rows) + '</ul>'
+    factory.return_value.fetch.return_value = html(candidate())
+    with patch.object(crawler, '_fetch_summary', return_value=None), patch('db.service._get_imdb_crawler', return_value=crawler):
+        assert client.post(f'/items/{one}/mismatch').status_code == 200
+    assert factory.return_value.fetch.call_args.args[0] == 'https://www.imdb.com/find/?q=example&s=tt&exact=true&ref_=fn_ttl_ex'
+    assert repo.find_one(one).poster is None and repo.find_one(one).summary is None
+    for rows in [(candidate('Different'),), (candidate(year='2021'),), (candidate(kind='TV Series'),), (candidate(), candidate())]:
+        factory.return_value.fetch.return_value = html(*rows)
+        with patch('db.service._get_imdb_crawler', return_value=crawler):
+            assert client.post(f'/items/{one}/mismatch').status_code == 422
+    factory.return_value.fetch.side_effect = BrowserFetchError('Unavailable')
+    with patch('db.service._get_imdb_crawler', return_value=crawler):
+        assert client.post(f'/items/{one}/mismatch').status_code == 503
+    from browserdriver.errors import UnexpectedPageError
+    factory.return_value.fetch.side_effect = UnexpectedPageError('Changed layout')
+    with patch('db.service._get_imdb_crawler', return_value=crawler):
+        assert client.post(f'/items/{one}/mismatch').status_code == 502
+assert client.delete(f'/items/{two}/duplicate').status_code == 200
+assert repo.find_one(one).id == one
+assert client.delete(f'/items/{one}/duplicate').status_code == 200
+assert repo.count() == 0
+assert client.delete('/items/999999/duplicate').status_code == 404
+from pathlib import Path
+from utils.settings import PROJECT_ROOT
+with patch('crawler.DriverFactory.create_driver') as factory:
+    crawler = ImdbCrawler()
+    factory.return_value.fetch.return_value = (PROJECT_ROOT / 'tests/fixtures/imdb-brotherhood.html').read_text()
+    with patch.object(crawler, '_fetch_summary', return_value=None):
+        result = crawler.crawl(Movie(id=6763, title_accurate='Brotherhood', year='2021', media_type='movie'), exact=True)
+    assert result.title == 'Brotherhood' and result.score == '6.5', result
+    factory.return_value.fetch.return_value = '<h1>Changed layout</h1>'
+    try:
+        crawler.crawl(Movie(id=6763, title='Brotherhood'), exact=True)
+        raise AssertionError('Parse failures must not become unmatched')
+    except BrowserFetchError:
+        pass
+
+''')
 
     def test_browse_from_another_directory_without_ml_or_network(self):
         result = self.run_isolated('''
@@ -116,6 +211,46 @@ with patch('threading.Thread.start', side_effect=AssertionError('Background job 
         runpy.run_path(str(PROJECT_ROOT / 'app.py'), run_name='__main__')
         run.assert_called_once_with(host=settings.host, port=settings.port,
                                     debug=settings.debug, use_reloader=False)
+''')
+
+    def test_imdb_service_crawls_and_persists_three_rows_concurrently(self):
+        self.run_isolated('''
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+from unittest.mock import Mock, patch
+from db.service import MovieService, _imdb_crawler_slots
+from db_model import Movie
+service = MovieService()
+ids = [service.movieRepository.insert(Movie(title=f'Example {i}', filename=f'Example.{i}.2020')) for i in range(3)]
+barrier = Barrier(3)
+def crawl(movie):
+    barrier.wait(timeout=3)
+    return movie.model_copy(update={'score': '8.0'})
+def factory():
+    crawler = Mock()
+    crawler.crawl.side_effect = crawl
+    return crawler
+with patch.object(_imdb_crawler_slots, '_factory', side_effect=factory) as constructor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        list(executor.map(service.crawl_imdb, [Movie(id=id) for id in ids]))
+    assert constructor.call_count == 3
+assert all(service.movieRepository.find_one(id).score == '8.0' for id in ids)
+_imdb_crawler_slots.close()
+''')
+
+    def test_imdb_startup_configures_parallel_callbacks(self):
+        self.run_isolated('''
+import os
+os.environ['MYRARGB_BACKGROUND_JOBS'] = 'true'
+os.environ['MYRARGB_IMDB_WORKERS'] = '3'
+import app
+from unittest.mock import patch
+with patch('app.Thread') as thread, patch.object(app.app, 'run'):
+    app.main()
+    imdb = [call for call in thread.call_args_list
+            if call.kwargs.get('kwargs', {}).get('group_id', '').endswith('.crawl_imdb')]
+    assert len(imdb) == 1
+    assert imdb[0].kwargs['kwargs']['workers'] == 3
 ''')
 
     def test_manual_crawl_script_uses_configured_endpoint_from_another_directory(self):

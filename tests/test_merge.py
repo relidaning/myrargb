@@ -32,7 +32,7 @@ with patch('db.service.model.predict', return_value=Movie(id=other.id, title='EX
      patch('db.service._bloom.hasItem', return_value=True):
     service.predict(other)
 assert service.movieRepository.count() == 1
-service.movieRepository.insert(Movie(title='Example', url='fixture-three'))
+service.movieRepository.insert(Movie(title='Example', filename='Example.2020.2160p', year='2020', media_type='movie', url='fixture-three'))
 assert service.deduplicate() == 1
 assert service.deduplicate() == 0
 assert service.movieRepository.find_one(item.id).title == 'Example'
@@ -68,6 +68,31 @@ with patch('db.service._producer.available', return_value=True), \\
 assert service.movieRepository.exists_by_url('missed')
 assert service._get_collected_range() == ('2020-01-01', '2020-01-13')
 db.conn.close()
+''')
+
+    def test_transient_catalog_navigation_retries_the_same_page(self):
+        self.run_isolated('''
+from unittest.mock import Mock, patch, call
+from browserdriver.errors import BrowserFetchError
+from db.service import MovieService
+from db_model import Movie
+from utils.settings import settings
+service = MovieService()
+fake = Mock()
+fake.crawl.side_effect = [BrowserFetchError('timeout'), [Movie(filename='New', url='new', added='2026-11-12')], []]
+with patch('db.service._producer.available',return_value=True), patch('db.service._producer.produce'), patch('db.service.RargbCrawler',return_value=fake):
+    assert service.crawl_rargb(incremental=True)
+assert fake.crawl.call_args_list == [call({'page':1}),call({'page':1}),call({'page':2})]
+assert service.movieRepository.count() == 1
+fake.crawl.side_effect = BrowserFetchError('timeout')
+fake.crawl.reset_mock()
+with patch('db.service._producer.available',return_value=True), patch('db.service.RargbCrawler',return_value=fake):
+    try:
+        service.crawl_rargb(incremental=True)
+        raise AssertionError('Expected bounded failure')
+    except BrowserFetchError:
+        pass
+assert fake.crawl.call_count == settings.crawl_page_attempts
 ''')
 
     def test_imdb_year_fallback_and_exact_match_priority(self):

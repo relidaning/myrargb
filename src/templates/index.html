@@ -20,13 +20,19 @@
       value="{{ q }}"
       autocomplete="off"
     />
+    <select name="media" class="sort-select" onchange="this.form.submit()" aria-label="Media type">
+      <option value="all" {% if media == 'all' %}selected{% endif %}>All releases</option>
+      <option value="movie" {% if media == 'movie' %}selected{% endif %}>Movies</option>
+      <option value="tv" {% if media == 'tv' %}selected{% endif %}>TV releases</option>
+      <option value="unknown" {% if media == 'unknown' %}selected{% endif %}>Unclassified</option>
+    </select>
     <select name="sort" class="sort-select" onchange="this.form.submit()" aria-label="Sort by">
       <option value="score" {% if sort == 'score' %}selected{% endif %}>Best score</option>
       <option value="seed" {% if sort == 'seed' %}selected{% endif %}>Most seeds</option>
     </select>
     <button type="submit" class="btn btn-ghost-search" aria-label="Search">&#128269;</button>
     {% if q %}
-      <a href="/?sort={{ sort }}" class="btn btn-ghost-search" aria-label="Clear search">&times;</a>
+      <a href="/?sort={{ sort }}&media={{ media }}" class="btn btn-ghost-search" aria-label="Clear search">&times;</a>
     {% endif %}
   </form>
   <div class="navbar-actions">
@@ -34,7 +40,8 @@
     <button class="btn btn-primary" onclick="crawlrargb()">&#8595; Crawl</button>
     <button class="btn btn-ghost" onclick="deduplicate()">&#9851; Deduplicate</button>
     {% if finetunable %}
-    <button class="btn btn-purple" onclick="train()">
+    <button class="btn btn-purple" onclick="train()" {% if trainable_count == 0 %}disabled{% endif %}
+            title="{{ trainable_count }} new or edited corrections ready to train; {{ pending_validation_count }} held out for validation.">
       &#9889; Train <span class="badge">{{ trainable_count }}</span>
     </button>
     {% endif %}
@@ -55,6 +62,7 @@
           <th class="tc" style="width:44px">#</th>
           <th style="width:60px">Poster</th>
           <th>Title</th>
+          <th style="width:150px">Type / Release</th>
           <th class="tc" style="width:58px">Year</th>
           <th style="width:110px">Genre</th>
           <th class="tc" style="width:76px">Score</th>
@@ -99,6 +107,12 @@
             <span class="filename">{{ item.filename }}</span>
           </td>
 
+          <td class="release-info">
+            {% if item.media_type == 'tv' %}<span class="media-tag">TV</span>
+            <small>{{ item.release_label }}</small>
+            {% elif item.media_type == 'movie' %}<span class="media-tag">Movie</span>
+            {% else %}<span class="muted">Unclassified</span>{% endif %}
+          </td>
           <td class="tc muted">{{ item.year or '—' }}</td>
 
           <td class="muted">{{ item.genre or '—' }}</td>
@@ -131,10 +145,12 @@
             {% elif item.marked == '02' %}
               <span class="status-tag tag-watched">Watched</span>
             {% else %}
-              <button class="action-btn btn-edit"  onclick="openDialog('{{ item.id }}')">Edit</button>
               <button class="action-btn btn-watch" onclick="watchedItem('{{ item.id }}')">Watch</button>
-              <button class="action-btn btn-drop"  onclick="abandonItem('{{ item.id }}')">Drop</button>
+              <button class="action-btn btn-drop"  onclick="abandonItem('{{ item.id }}')">Abandon</button>
             {% endif %}
+            <button class="action-btn btn-edit" onclick="openDialog('{{ item.id }}')">Edit</button>
+            <button class="action-btn btn-edit" onclick="rematchItem('{{ item.id }}', this)">Mismatch</button>
+            <button class="action-btn btn-drop" onclick="deleteDuplicateItem('{{ item.id }}', this)">Delete</button>
           </td>
 
         </tr>
@@ -145,7 +161,7 @@
 
   <div class="pagination">
     {% if page > 1 %}
-      <a class="page-btn" href="/?page={{ page - 1 }}&sort={{ sort }}{% if q %}&q={{ q | urlencode }}{% endif %}">&larr;</a>
+      <a class="page-btn" href="/?page={{ page - 1 }}&sort={{ sort }}&media={{ media }}{% if q %}&q={{ q | urlencode }}{% endif %}">&larr;</a>
     {% endif %}
 
     {% for p in pages %}
@@ -154,12 +170,12 @@
       {% elif p == page %}
         <span class="page-btn page-current">{{ p }}</span>
       {% else %}
-        <a class="page-btn" href="/?page={{ p }}&sort={{ sort }}{% if q %}&q={{ q | urlencode }}{% endif %}">{{ p }}</a>
+        <a class="page-btn" href="/?page={{ p }}&sort={{ sort }}&media={{ media }}{% if q %}&q={{ q | urlencode }}{% endif %}">{{ p }}</a>
       {% endif %}
     {% endfor %}
 
     {% if has_next %}
-      <a class="page-btn" href="/?page={{ page + 1 }}&sort={{ sort }}{% if q %}&q={{ q | urlencode }}{% endif %}">&rarr;</a>
+      <a class="page-btn" href="/?page={{ page + 1 }}&sort={{ sort }}&media={{ media }}{% if q %}&q={{ q | urlencode }}{% endif %}">&rarr;</a>
     {% endif %}
 
     <span class="page-info">{{ page }} / {{ total_pages }}</span>
@@ -231,6 +247,30 @@
     axios.get(`/movies/${id}/abandon`)
       .then(async r => { await showToast(r.data.message); location.reload(); })
       .catch(console.error);
+  }
+
+  async function rematchItem(id, button) {
+    button.disabled = true;
+    button.textContent = 'Matching…';
+    try {
+      await axios.post(`/items/${id}/mismatch`);
+      location.reload();
+    } catch (error) {
+      alert(error.response?.data?.message || 'IMDb lookup failed. Please retry.');
+      button.disabled = false;
+      button.textContent = 'Mismatch';
+    }
+  }
+
+  async function deleteDuplicateItem(id, button) {
+    button.disabled = true;
+    try {
+      await axios.delete(`/items/${id}/duplicate`);
+      location.reload();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Could not delete this item.');
+      button.disabled = false;
+    }
   }
 
   function watchedItem(id) {

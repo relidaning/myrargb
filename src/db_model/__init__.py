@@ -15,7 +15,7 @@ class DbModel(BaseModel):
     table_name: ClassVar[str] = ""
 
 
-@table("movies")
+@table("items")
 class Movie(DbModel):
     filename: str | None = None
     size: str | None = None
@@ -32,6 +32,17 @@ class Movie(DbModel):
     seed: int | None = None
     leech: int | None = None
     summary: str | None = None
+    media_type: str | None = None
+    release_scope: str | None = None
+    season: int | None = None
+    season_end: int | None = None
+    episode: int | None = None
+    episode_end: int | None = None
+
+    @property
+    def release_label(self):
+        from utils.media import release_label
+        return release_label(self)
 
 
 @table("collected")

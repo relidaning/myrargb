@@ -1,8 +1,7 @@
 from utils.settings import settings
-import re
+from utils.titles import title_key
 from bloom_filter import BloomFilter
 
-_PUNCT_RE = re.compile(r'[^a-z0-9]+')
 
 
 class BloomUtils:
@@ -21,12 +20,7 @@ class BloomUtils:
 
 
 def normalize(s: str) -> str:
-    """Normalize a title for dedup: lowercase, collapse all non-alphanumeric to space.
-
-    'a.b.c', 'a b c', 'a-b-c', 'a_b_c' all become 'a b c'.
-    """
-    s = _PUNCT_RE.sub(' ', s.lower())
-    return s.strip()
+    return title_key(s)
 
 
 if __name__ == "__main__":

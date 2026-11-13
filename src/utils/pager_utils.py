@@ -3,7 +3,7 @@
 _ALLOWED_COLUMNS = {
     "id", "filename", "size", "title", "url", "score", "genre",
     "poster", "marked", "title_accurate", "trained_flag", "added", "year",
-    "seed", "leech",
+    "seed", "leech", "media_type", "season", "episode",
 }
 
 PER_PAGE = 20

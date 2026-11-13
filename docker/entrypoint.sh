@@ -1,7 +1,5 @@
 #!/bin/bash
 set -e
 
-ls -la /app
-
-# Then start the app
+# Source code lives under /app/src; app.py adds it to the import path.
 exec "$@"
