@@ -89,9 +89,15 @@ class MyRargbModel:
             self.tokenizer.batch_decode(labels, skip_special_tokens=True),
         )
 
+    def predict_text(self,text):
+        from model.prediction import predict_text
+        return predict_text(self.tokenizer,self.model,text,settings.prediction_max_input_tokens,
+                            settings.generation_min_new_tokens)
+
     def train(self, items: List[Movie]):
         from datasets import Dataset
-        from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments, EarlyStoppingCallback, set_seed
+        from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments, EarlyStoppingCallback, TrainerCallback, set_seed
+        from model.experiment_metrics import record_event, number
 
         split = prepare_split(items, settings.training_seed, settings.training_validation_fraction,
                               read_manifest(settings.training_split_path))
@@ -102,6 +108,25 @@ class MyRargbModel:
         report = split.summary()
         report['split_path'] = str(settings.training_split_path)
         report['seed'] = settings.training_seed
+        report['configuration'] = {
+            'learning_rate': settings.training_learning_rate,
+            'batch_size_per_device': settings.training_batch_size,
+            'seed': settings.training_seed,
+            'training_examples': len(split.train),
+            'validation_examples': len(split.validation),
+            'split_path': str(settings.training_split_path),
+            'num_beams': settings.training_num_beams,
+            'max_length': settings.training_max_length,
+        }
+        # A baseline of an already loaded checkpoint is not a fresh-T5 baseline.
+        report['baseline_kind'] = 'loaded_model_before_training'
+        record_event(run_name, 'started', {}, report['configuration'])
+
+        class MetricsCallback(TrainerCallback):
+            def on_log(self, args, state, control, logs=None, **kwargs):
+                values = {k: v for k, v in (logs or {}).items() if number(v)}
+                values.update(epoch=state.epoch or 0, step=state.global_step)
+                record_event(run_name, 'progress', values)
         write_json(run_path / 'split.json', split.manifest)
         write_json(run_path / 'report.json', report)
         logger.info('Training with %s examples; %s fixed validation examples (%s previously trained).',
@@ -145,13 +170,16 @@ class MyRargbModel:
             eval_dataset=tokenize_rows(split.validation),
             processing_class=self.tokenizer,
             compute_metrics=self.compute_metrics,
-            callbacks=[EarlyStoppingCallback(early_stopping_patience=settings.training_early_stopping_patience)],
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=settings.training_early_stopping_patience), MetricsCallback()],
         )
         report['baseline_metrics'] = trainer.evaluate(metric_key_prefix='baseline')
+        record_event(run_name, 'baseline', {k:v for k,v in report['baseline_metrics'].items() if number(v)})
         write_json(run_path / 'report.json', report)
         trainer.train()
         # Trainer reloads the lowest-validation-loss checkpoint before this save.
         report['final_metrics'] = trainer.evaluate()
+        record_event(run_name, 'final', {k:v for k,v in report['final_metrics'].items() if number(v)})
+        report['log_history'] = trainer.state.log_history
         report['best_checkpoint'] = trainer.state.best_model_checkpoint
         report['best_validation_loss'] = trainer.state.best_metric
         report['run_path'] = str(run_path)
@@ -185,6 +213,15 @@ class LazyModel:
             raise RuntimeError('The model is busy; retry training after the current operation finishes.')
         try:
             return self._get().train(items)
+        finally:
+            self._operation_lock.release()
+
+    def predict_text(self,text):
+        from model.prediction import PredictionBusyError
+        if not self._operation_lock.acquire(blocking=False):
+            raise PredictionBusyError('The application model is busy. Try again after its current operation finishes.')
+        try:
+            return self._get().predict_text(text)
         finally:
             self._operation_lock.release()
 

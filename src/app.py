@@ -52,6 +52,48 @@ movieRepository = MovieRepository()
 tv_service = TvService()
 
 
+@app.get('/model/playground')
+def prediction_playground():
+    from model.playground import playground
+    choices=[{key:value for key,value in choice.items() if key!='path'} for choice in playground.options()]
+    return render_template('prediction.html',models=choices,max_chars=settings.prediction_max_chars)
+
+
+@app.post('/model/predict')
+def predict_text():
+    from model.playground import playground
+    from model.prediction import PredictionBusyError
+    from utils.job_metrics import record_job
+    started=time.monotonic()
+    outcome='failure'
+    try:
+        data=request.get_json(silent=True)
+        if not isinstance(data,dict):
+            return jsonify(status='error',message='Send a JSON object with text and models.'),400
+        text=data.get('text')
+        selected=data.get('models',['current'])
+        if not isinstance(text,str) or not text.strip():
+            return jsonify(status='error',message='Enter a filename or some text to predict.'),400
+        if len(text)>settings.prediction_max_chars:
+            return jsonify(status='error',message=f'Text must be at most {settings.prediction_max_chars} characters.'),400
+        if not isinstance(selected,list) or any(not isinstance(key,str) for key in selected):
+            return jsonify(status='error',message='models must be a list of model identifiers.'),400
+        results=playground.predict(text.strip(),selected)
+        outcome='success'
+        return jsonify(status='success',results=results)
+    except ValueError as error:
+        return jsonify(status='error',message=str(error)),400
+    except PredictionBusyError:
+        return jsonify(status='error',message='The model is busy or unavailable. Please try again shortly.'),409
+    except FileNotFoundError:
+        return jsonify(status='error',message='A selected model is not installed locally.'),503
+    except Exception as error:
+        logger.error('Prediction playground failed (%s).',type(error).__name__)
+        return jsonify(status='error',message='Prediction failed. Check the application log.'),500
+    finally:
+        record_job('prediction_playground',outcome,time.monotonic()-started)
+
+
 SORT_OPTIONS = {
     "score": "score DESC, marked asc",
     "seed": "seed DESC, marked asc",

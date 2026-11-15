@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyRargb — Try a title</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+<nav class="navbar">
+  <a class="navbar-brand prediction-brand" href="/">MyRargb</a>
+  <div class="navbar-actions">
+    <a class="btn btn-ghost" href="/">Movies</a>
+    <a class="btn btn-ghost" href="/tv">TV</a>
+    <span class="tab tab-active" aria-current="page">Try a title</span>
+  </div>
+</nav>
+<main class="main prediction-main">
+  <header class="prediction-heading">
+    <h1>What’s the title?</h1>
+    <p>Paste a resource name and see what the models extract.</p>
+  </header>
+  <div class="prediction-layout">
+    <form id="prediction-form" class="prediction-editor">
+      <label class="prediction-label" for="prediction-text">Filename or text</label>
+      <textarea id="prediction-text" name="text" rows="6" maxlength="{{ max_chars }}" required
+        placeholder="The.Matrix.1999.1080p.BluRay.x264-GROUP" aria-describedby="input-help"></textarea>
+      <div class="prediction-input-footer"><span id="input-help" class="muted">Ctrl / ⌘ + Enter to predict</span><span id="char-count" class="muted">0 / {{ max_chars }}</span></div>
+      <div class="prediction-examples" aria-label="Example inputs">
+        <span class="muted">Try an example</span>
+        <button class="btn btn-ghost" type="button" data-example="The.Matrix.1999.1080p.BluRay.x264-GROUP">Movie release</button>
+        <button class="btn btn-ghost" type="button" data-example="Shogun.S01E02.1080p.WEB-DL.DDP5.1.H.264-GROUP">TV episode</button>
+      </div>
+      <fieldset class="prediction-models">
+        <legend>Models to test</legend>
+        {% for model in models %}
+        <label class="prediction-model-option">
+          <input type="checkbox" name="models" value="{{ model.id }}" {% if model.id == 'current' and model.available %}checked{% endif %} {% if not model.available %}disabled{% endif %} />
+          <span>{{ model.label }}{% if not model.available %}<small class="muted">Not installed</small>{% endif %}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      <button id="prediction-submit" type="submit" class="btn btn-primary">Predict title</button>
+      <p class="prediction-note muted">Test as many inputs as you like. Predictions here don’t change your catalog.</p>
+    </form>
+    <section class="prediction-results" aria-labelledby="results-heading" aria-busy="false">
+      <h2 id="results-heading">Predicted titles</h2>
+      <p id="prediction-status" role="status" aria-live="polite" class="muted">Your results will appear here.</p>
+      <div id="prediction-error" role="alert" hidden></div>
+      <div id="prediction-output"></div>
+    </section>
+  </div>
+</main>
+<script src="{{ url_for('static', filename='js/prediction.js') }}" defer></script>
+</body>
+</html>

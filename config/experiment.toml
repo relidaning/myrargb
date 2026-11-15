@@ -1,0 +1,26 @@
+# Isolated experiment; paths resolve from the project root, never the caller's cwd.
+source = "data/data-261114.jsonl"
+output = "data/experiments/t5-261114"
+split_seed = 42
+validation_fraction = 0.15
+test_fraction = 0.15
+training_sizes = [100, 200, 400, 600, 800, 1000]
+
+# These identify the public pretrained weights; never use the application model_path.
+# Pinned public Hub commit; every baseline/trial loads this exact revision.
+base_model = "google-t5/t5-small"
+base_revision = "df1b051c49625cf57a3d0d8d3863ed4d13564fe4"
+task_prefix = "clean the title: "
+# Initial smoke trial; tune these only after verifying the full pipeline.
+training_seed = 42
+training_size = 100
+epochs = 3
+learning_rate = 0.0001
+weight_decay = 0.01
+batch_size = 2
+gradient_accumulation_steps = 4
+eval_batch_size = 4
+input_max_length = 256
+target_max_length = 64
+num_beams = 4
+cpu_threads = 4

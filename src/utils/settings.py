@@ -20,6 +20,9 @@ class Settings:
     bloom_path: Path
     model_name: str
     model_path: Path
+    prediction_models_path: Path
+    prediction_max_chars: int
+    prediction_max_input_tokens: int
     training_output_path: Path
     training_log_path: Path
     training_split_path: Path

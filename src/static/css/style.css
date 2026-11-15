@@ -652,3 +652,34 @@ dialog::backdrop { background: rgba(0,0,0,0.65); }
 .media-tag { display: inline-block; padding: 2px 7px; border: 1px solid #485168; border-radius: 5px; font-size: 12px; }
 
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Title prediction playground: reuse the catalog's palette and controls. */
+.prediction-brand { text-decoration: none; }
+.prediction-main { max-width: 1160px; }
+.prediction-heading { margin: 22px 0 36px; }
+.prediction-heading h1 { font-size: clamp(30px, 4vw, 44px); line-height: 1.15; letter-spacing: -1.2px; margin-bottom: 12px; }
+.prediction-heading p { color: var(--muted); font-size: 16px; }
+.prediction-layout { display: grid; grid-template-columns: 1.1fr 1fr; gap: 44px; }
+.prediction-label, .prediction-models legend { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.prediction-editor textarea { display: block; width: 100%; resize: vertical; min-height: 156px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 16px; font: 14px/1.7 ui-monospace, monospace; overflow-wrap: anywhere; }
+.prediction-editor textarea:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prediction-input-footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.prediction-examples { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 20px 0 28px; }
+.prediction-models { border: 0; margin: 0 0 24px; }
+.prediction-model-option { display: flex; align-items: center; gap: 12px; padding: 10px 0; cursor: pointer; }
+.prediction-model-option input { width: 17px; height: 17px; accent-color: var(--accent); }
+.prediction-model-option small { display: block; }
+.prediction-editor > .btn { padding: 11px 20px; font-size: 14px; }
+.prediction-note { margin-top: 14px; max-width: 55ch; }
+.prediction-results { border-left: 1px solid var(--border); padding-left: 32px; min-width: 0; }
+.prediction-results h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+.prediction-result { padding: 24px 0; border-bottom: 1px solid var(--border); }
+.prediction-result h3 { color: var(--muted); font-weight: 500; font-size: 13px; }
+.prediction-title { font-size: 25px; line-height: 1.35; overflow-wrap: anywhere; margin: 8px 0 12px; }
+#prediction-error { color: #fca5a5; margin: 18px 0; padding: 12px; background: rgba(239,68,68,.1); border-left: 3px solid var(--red); }
+.prediction-main button:focus-visible, .prediction-main input:focus-visible, .prediction-brand:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (max-width: 720px) {
+  .prediction-layout { grid-template-columns: 1fr; gap: 32px; }
+  .prediction-results { border-left: 0; border-top: 1px solid var(--border); padding: 24px 0 0; }
+  .prediction-heading { margin: 12px 0 28px; }
+}

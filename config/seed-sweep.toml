@@ -1,0 +1,10 @@
+# Confirm the three tied settings; seeds are repetitions, not candidates to select.
+base_config = "config/experiment.toml"
+training_size = 720
+epochs = 5
+training_seeds = [42, 123, 2026]
+settings = [
+  { learning_rate = 0.00005, effective_batch_size = 8 },
+  { learning_rate = 0.0001, effective_batch_size = 16 },
+  { learning_rate = 0.0001, effective_batch_size = 32 },
+]

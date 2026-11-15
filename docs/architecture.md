@@ -55,6 +55,14 @@ IMDb search results may omit score or year fields; guard with inline conditional
 
 ### Layering
 
+The read-only title playground is at `GET /model/playground` with
+`POST /model/predict`. `src/model/playground.py` owns configured model choices,
+serial requests and one cached experimental checkpoint; `src/model/prediction.py`
+owns the bounded inference adapter. Current-model tests share `LazyModel`'s
+operation lock with production prediction/training. The page does not call the
+catalog prediction workflow or write corrections. Configuration and API details
+are in [training.md](training.md#try-individual-predictions).
+
 Strict separation: **`src/app.py`** = routes/web layer only, **`service.py`** = business logic, **`db.py` + `db_model/`** = data layer. Routes needing the Bloom filter import `_bloom` from `db.service` (to share the singleton) — not from `utils.bloom_utils` directly.
 
 All SQL queries use parameterized placeholders (bound arguments) — never string interpolation. Torrent filenames are untrusted input and would otherwise allow injection via `src/db/db.py` and `src/db/repository.py`.

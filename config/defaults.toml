@@ -10,6 +10,10 @@ database_path = "data/myrargb.db"
 bloom_path = "data/bf.bin"
 model_name = "t5-small"
 model_path = "data/my_finetuned_t5"
+# Local model allowlist for the prediction playground; no model downloads.
+prediction_models_path = "config/model-comparison.toml"
+prediction_max_chars = 4096
+prediction_max_input_tokens = 256
 training_output_path = "data/results"
 training_log_path = "logs/training"
 # Reused across runs: keep titles in validation out of subsequent training.

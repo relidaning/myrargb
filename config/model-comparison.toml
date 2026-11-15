@@ -1,0 +1,23 @@
+# Read-only evaluation of the application's checkpoint and all three new seeds.
+experiment_config = "config/experiment.toml"
+batch_size = 4
+cpu_threads = 4
+input_max_length = 256
+max_new_tokens = 64
+min_new_tokens = 1
+num_beams = 4
+default_protocol = "application"
+models = [
+  { label = "Existing application checkpoint", path = "data/my_finetuned_t5" },
+  { label = "New T5, seed 42", path = "data/experiments/t5-261114/runs/train-20261115T063129-2920b124/model" },
+  { label = "New T5, seed 123", path = "data/experiments/t5-261114/runs/train-20261115T095915-c229dc96/model" },
+  { label = "New T5, seed 2026", path = "data/experiments/t5-261114/runs/train-20261115T100240-35b7bfa2/model" },
+]
+
+[protocols.application]
+length_parameter = "max_new_tokens"
+early_stopping = true
+
+[protocols.experiment]
+length_parameter = "max_length"
+early_stopping = false
